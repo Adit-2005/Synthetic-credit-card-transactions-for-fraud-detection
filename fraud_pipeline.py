@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
     "N_CUSTOMERS": 2000,
     "N_MERCHANTS": 800,
     "N_TXNS": 10000,
-    "START_DATE": datetime(2025, 1, 1),
+    "START_DATE": "2025-01-01",
     "DAYS": 45,
     "TARGET_FRAUD_RATE": 0.025
 }
@@ -69,8 +69,15 @@ def weighted_choice(choices, weights):
     return choices[np.searchsorted(cum, r)]
 
 def generate_transactions(config=None, seed=SEED):
+    # Merge with default config
     if config is None:
         config = DEFAULT_CONFIG.copy()
+    else:
+        config = {**DEFAULT_CONFIG, **config}
+    
+    # Ensure START_DATE is datetime
+    if isinstance(config["START_DATE"], str):
+        config["START_DATE"] = pd.to_datetime(config["START_DATE"])
     
     np.random.seed(seed)
     random.seed(seed)
@@ -104,7 +111,7 @@ def generate_transactions(config=None, seed=SEED):
     )
     merchants["is_online"] = merchants["mcc"].isin(["4814", "5967", "7995"]) | (np.random.rand(config["N_MERCHANTS"]) < 0.25)
 
-    # Generate transactions with all required columns
+    # Generate transactions
     txns = pd.DataFrame({
         "transaction_id": [rand_id("txn") for _ in range(config["N_TXNS"])],
         "customer_id": np.random.choice(customers["customer_id"], size=config["N_TXNS"]),
@@ -329,7 +336,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             reg_lambda=1.0,
             random_state=seed,
             scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
-        )
     
     results = []
     figs = {}
@@ -376,36 +382,3 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
 
     results_df = pd.DataFrame(results)
     return results_df, figs, roc_data
-
-def main():
-    # Generate transaction data
-    print("Generating transaction data...")
-    data = generate_transactions()
-    txns = data['txns']
-    
-    # Perform EDA
-    print("Creating visualizations...")
-    eda_figs = plot_eda(txns)
-    
-    # Prepare features
-    print("Preparing features for modeling...")
-    X, y = prepare_features(txns)
-    
-    # Train and evaluate models
-    print("Training and evaluating models...")
-    results, model_figs, roc_data = train_and_evaluate(X, y)
-    
-    # Show results
-    print("\nModel Performance:")
-    print(results.to_string(index=False))
-    
-    # Save visualizations
-    for name, fig in eda_figs.items():
-        fig.savefig(f"eda_{name}.png")
-    for name, fig in model_figs.items():
-        fig.savefig(f"model_{name}.png")
-    
-    print("\nVisualizations saved to disk.")
-
-if __name__ == "__main__":
-    main()
