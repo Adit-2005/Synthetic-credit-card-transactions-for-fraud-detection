@@ -35,7 +35,7 @@ SEED = 42
 np.random.seed(SEED)
 random.seed(SEED)
 
-# --- Fraud Pipeline Functions ---
+# Configuration
 DEFAULT_CONFIG = {
     "N_CUSTOMERS": 2000,
     "N_MERCHANTS": 800,
@@ -259,7 +259,10 @@ def plot_eda(txns):
     # Plot 5: Geographic Distribution
     ax5 = plt.subplot(gs[2, :])
     fraud_locations = txns[txns['is_fraud'] == 1]
-    legit_locations = txns[txns['is_fraud'] == 0].sample(n=min(10000, len(txns[txns['is_fraud'] == 0)))
+    legit_mask = txns['is_fraud'] == 0
+    sample_size = min(10000, len(txns[legit_mask]))
+    legit_locations = txns[legit_mask].sample(n=sample_size)
+    
     ax5.scatter(legit_locations['home_lon'], legit_locations['home_lat'], 
                color='#2ecc71', alpha=0.3, label='Legitimate', s=10)
     ax5.scatter(fraud_locations['home_lon'], fraud_locations['home_lat'], 
@@ -386,7 +389,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     results_df = pd.DataFrame(results)
     return results_df, figs, roc_data
 
-# --- Streamlit App Code ---
+# Streamlit UI
 st.set_page_config(
     page_title="Fraud Detection Pro",
     page_icon="🔍",
