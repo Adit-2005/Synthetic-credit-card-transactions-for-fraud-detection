@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 from fraud_pipeline import (
     generate_transactions,
     plot_eda,
@@ -120,7 +119,9 @@ if run_btn:
             "N_CUSTOMERS": 2000,
             "N_MERCHANTS": 800,
             "N_TXNS": int(n_txns),
-            "TARGET_FRAUD_RATE": float(target_fraud)/100
+            "TARGET_FRAUD_RATE": float(target_fraud)/100,
+            "START_DATE": "2025-01-01",
+            "DAYS": 45
         }
         out = generate_transactions(config=cfg, seed=int(seed))
         txns = out['txns']
