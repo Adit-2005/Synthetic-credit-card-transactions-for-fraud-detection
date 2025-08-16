@@ -405,6 +405,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             reg_lambda=1.0,
             random_state=seed,
             scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
+        )
     
     results = []
     figs = {}
@@ -451,9 +452,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         plt.close(fig)
 
     results_df = pd.DataFrame(results)
-    return results_df, figs, roc_data
-
-def plot_feature_importance(model, X, model_name):
+    return results_df, figs, roc_datadef plot_feature_importance(model, X, model_name):
     if hasattr(model, 'feature_importances_'):
         importances = model.feature_importances_
     elif hasattr(model, 'coef_'):
