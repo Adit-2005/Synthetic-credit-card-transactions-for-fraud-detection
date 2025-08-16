@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import seaborn as sns
 from datetime import datetime, timedelta
 import uuid
@@ -343,7 +342,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             colsample_bytree=0.8,
             reg_lambda=1.0,
             random_state=seed,
-            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
+            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
         )
     
     results = []
@@ -513,15 +512,15 @@ with st.sidebar:
             step=1
         )
     
-    with st.expander("🤖 Model Selection"):
+    with st.expander("🤖 Model Selection (Optional)"):
         base_models = ['Logistic Regression', 'Random Forest', 'SVM', 'KNN']
         
         if HAVE_XGB:
             available_models = base_models + ['XGBoost']
-            default_models = ['Logistic Regression', 'Random Forest', 'XGBoost']
+            default_models = []
         else:
             available_models = base_models
-            default_models = ['Logistic Regression', 'Random Forest']
+            default_models = []
             st.markdown(
                 '<div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0;">'
                 '⚠️ XGBoost not installed. <code>pip install xgboost</code>'
@@ -530,22 +529,19 @@ with st.sidebar:
             )
         
         models_selected = st.multiselect(
-            "Models to Run",
+            "Models to Run (Leave empty to skip modeling)",
             available_models,
             default=default_models
         )
     
     run_btn = st.button(
-        "🚀 Run Analysis",
+        "🚀 Generate Data",
         type="primary",
         use_container_width=True
     )
 
-st.title("💳 Fraud Detection Dashboard")
-st.caption("Advanced synthetic transaction analysis system")
-
 # Create tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export", "⚙️ Settings"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export"])
 
 if run_btn:
     cfg = {
@@ -559,9 +555,8 @@ if run_btn:
     out = generate_transactions(config=cfg, seed=int(seed))
     txns = out['txns']
     
-    X, y = prepare_features(txns)
-    
-    results_df, figs, roc_data, models = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
+    # Store the generated data in session state
+    st.session_state.generated_data = txns
     
     # Dashboard Tab
     with tab1:
@@ -643,65 +638,70 @@ if run_btn:
         st.plotly_chart(px.scatter(filtered, x='hour', y='amount', color='is_fraud',
                        title='Transactions by Hour and Amount'), use_container_width=True)
     
-    # Models Tab
-    with tab3:
-        st.subheader("Enhanced Model Evaluation")
-        enhanced_model_comparison(results_df)
+    # Only run models if any were selected
+    if models_selected:
+        X, y = prepare_features(txns)
+        results_df, figs, roc_data, models = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
         
-        for model_name in results_df['Model']:
-            with st.expander(f"🔍 Detailed Analysis: {model_name}", expanded=False):
-                detailed_feature_analysis(models[model_name], X, y, model_name)
-                
-                if model_name in figs:
-                    st.pyplot(figs[model_name])
+        # Models Tab
+        with tab3:
+            st.subheader("Enhanced Model Evaluation")
+            enhanced_model_comparison(results_df)
+            
+            for model_name in results_df['Model']:
+                with st.expander(f"🔍 Detailed Analysis: {model_name}", expanded=False):
+                    detailed_feature_analysis(models[model_name], X, y, model_name)
+                    
+                    if model_name in figs:
+                        st.pyplot(figs[model_name])
+    else:
+        with tab3:
+            st.info("No models selected. Configure models in the sidebar to run analysis.")
     
     # Export Tab
     with tab4:
-        st.subheader("Data Export")
+        st.subheader("Data Export Options")
         
-        export_format = st.radio(
-            "Export Format",
-            ["CSV", "Excel", "JSON"],
-            horizontal=True
-        )
+        st.write("You can download the generated dataset in multiple formats:")
         
-        if st.button("💾 Export Transaction Data"):
-            buffer = io.BytesIO()
-            if export_format == "CSV":
-                txns.to_csv(buffer, index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=buffer,
-                    file_name="fraud_transactions.csv",
-                    mime="text/csv"
-                )
-            elif export_format == "Excel":
-                with pd.ExcelWriter(buffer) as writer:
-                    txns.to_excel(writer, index=False)
-                st.download_button(
-                    label="Download Excel",
-                    data=buffer,
-                    file_name="fraud_transactions.xlsx",
-                    mime="application/vnd.ms-excel"
-                )
-            elif export_format == "JSON":
-                txns.to_json(buffer, orient="records")
-                st.download_button(
-                    label="Download JSON",
-                    data=buffer,
-                    file_name="fraud_transactions.json",
-                    mime="application/json"
-                )
-    
-    # Settings Tab
-    with tab5:
-        st.subheader("Advanced Settings")
-        st.write("Configuration options coming soon...")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.download_button(
+                "⬇️ Download as CSV",
+                data=txns.to_csv(index=False),
+                file_name="fraud_transactions.csv",
+                mime="text/csv"
+            )
+        with col2:
+            st.download_button(
+                "⬇️ Download as Excel",
+                data=txns.to_excel(index=False),
+                file_name="fraud_transactions.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        with col3:
+            st.download_button(
+                "⬇️ Download as JSON",
+                data=txns.to_json(indent=2),
+                file_name="fraud_transactions.json",
+                mime="application/json"
+            )
+        
+        st.divider()
+        
+        st.write("For customized exports, use the filters in the Exploration tab and download the filtered data:")
+        if 'filtered' in locals():
+            st.download_button(
+                "⬇️ Download Filtered Data (CSV)",
+                data=filtered.to_csv(index=False),
+                file_name="filtered_fraud_transactions.csv",
+                mime="text/csv"
+            )
 
 else:
     # Welcome message (Dashboard tab)
     with tab1:
-        st.info("Configure parameters in the sidebar and click 'Run Analysis' to begin.")
+        st.info("Configure parameters in the sidebar and click 'Generate Data' to begin.")
         
         with st.expander("📌 Quick Start Guide", expanded=True):
             st.markdown("""
@@ -709,23 +709,21 @@ else:
                 <h3 style="margin-top:0;">Getting Started</h3>
                 <ol>
                     <li>Set transaction volume and fraud rate</li>
-                    <li>Select machine learning models</li>
-                    <li>Click "Run Analysis" to generate results</li>
+                    <li>Optionally select machine learning models to analyze</li>
+                    <li>Click "Generate Data" to create synthetic transactions</li>
+                    <li>Explore the data and download it in your preferred format</li>
                 </ol>
             </div>
             """, unsafe_allow_html=True)
     
     with tab2:
-        st.info("Run analysis to explore transaction data")
+        st.info("Generate data to explore transaction patterns")
     
     with tab3:
-        st.info("Run analysis to view model performance")
+        st.info("Select models in the sidebar to analyze the data")
     
     with tab4:
-        st.info("Run analysis to enable data export")
-    
-    with tab5:
-        st.info("Run analysis to access advanced settings")
+        st.info("Generate data to access export options")
 
 st.markdown("---")
-st.caption("© 2024 Fraud Detection Pro | v2.2 | Enhanced Analytics")
+st.caption("© 2023 Fraud Detection Pro | v2.3 | Enhanced Data Export")
