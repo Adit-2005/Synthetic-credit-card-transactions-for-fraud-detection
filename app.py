@@ -46,9 +46,7 @@ DEFAULT_CONFIG = {
     "TARGET_FRAUD_RATE": 0.025
 }
 
-# ==============================================
-# HELPER FUNCTIONS
-# ==============================================
+# Helper Functions
 def rand_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
@@ -344,7 +342,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             colsample_bytree=0.8, 
             reg_lambda=1.0,
             random_state=seed,
-            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
+            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
         )
     
     results = []
@@ -410,9 +408,7 @@ def plot_feature_importance(model, X, model_name):
     fig.update_layout(showlegend=False)
     return fig
 
-# ==============================================
-# STREAMLIT UI
-# ==============================================
+# Streamlit UI
 st.set_page_config(
     page_title="Fraud Detection Pro",
     page_icon="🔍",
@@ -420,35 +416,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for animations and UI polish
+# Custom CSS
 st.markdown("""
 <style>
-    /* Fade-in animations */
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
-    
-    /* Apply animations */
     .stApp > div, .stButton > button, .stMetric, .stDataFrame, .stPlotlyChart {
         animation: fadeIn 0.6s ease-out;
     }
-    
-    /* Hover effects */
     .stMetric:hover, .stButton>button:hover {
         transform: translateY(-2px);
         transition: all 0.2s ease;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
     }
-    
-    /* Enhanced sidebar */
     .sidebar .sidebar-content {
         background: linear-gradient(135deg, #2c3e50, #1a1a2e);
         color: white;
         padding: 2rem 1.5rem;
     }
-    
-    /* Card-style metrics */
     .metric-card {
         background: white;
         border-radius: 10px;
@@ -456,15 +443,11 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         transition: all 0.3s ease;
     }
-    
-    /* Table hover */
     .dataframe tbody tr:hover {
         background-color: #f8f9fa !important;
         transform: scale(1.01);
         transition: all 0.2s ease;
     }
-    
-    /* Custom spinner */
     @keyframes spin {
         to { transform: rotate(360deg); }
     }
@@ -482,28 +465,25 @@ with st.sidebar:
     st.title("🔍 Fraud Detection Pro")
     st.markdown("---")
     
-    with st.expander("⚙️ **Configuration**", expanded=True):
+    with st.expander("⚙️ Configuration", expanded=True):
         n_txns = st.number_input(
             "Number of Transactions",
             min_value=1000,
             max_value=50000,
             value=10000,
-            step=1000,
-            help="Lower values will process faster"
+            step=1000
         )
         target_fraud = st.slider(
             "Target Fraud Rate (%)",
-            0.1, 10.0, 2.5, 0.1,
-            help="Percentage of fraudulent transactions to generate"
+            0.1, 10.0, 2.5, 0.1
         )
         seed = st.number_input(
             "Random Seed",
             value=SEED,
-            step=1,
-            help="For reproducible results"
+            step=1
         )
     
-    with st.expander("🤖 **Model Selection**"):
+    with st.expander("🤖 Model Selection"):
         base_models = ['Logistic Regression', 'Random Forest', 'SVM', 'KNN']
         
         if HAVE_XGB:
@@ -522,8 +502,7 @@ with st.sidebar:
         models_selected = st.multiselect(
             "Models to Run",
             available_models,
-            default=default_models,
-            help="Select which models to train and evaluate"
+            default=default_models
         )
     
     run_btn = st.button(
@@ -535,7 +514,7 @@ with st.sidebar:
 st.title("💳 Fraud Detection Dashboard")
 st.caption("Advanced synthetic transaction analysis system")
 
-# Create tabs (always visible)
+# Create tabs
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export", "⚙️ Settings"])
 
 if run_btn:
@@ -562,7 +541,6 @@ if run_btn:
     
     # Dashboard Tab
     with tab1:
-        # Card-style metrics
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"""
@@ -588,7 +566,6 @@ if run_btn:
         
         st.divider()
         
-        # Fraud timeline
         st.subheader("Fraud Timeline")
         fig = px.area(
             txns.groupby(txns['timestamp'].dt.hour)['is_fraud'].mean().reset_index(),
@@ -604,7 +581,6 @@ if run_btn:
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        # EDA Plots
         st.subheader("Exploratory Data Analysis")
         eda_figs = plot_eda(txns)
         st.pyplot(eda_figs['overview'])
@@ -613,7 +589,6 @@ if run_btn:
     with tab2:
         st.subheader("Transaction Explorer")
         
-        # Add filtering controls
         col1, col2 = st.columns(2)
         with col1:
             amount_filter = st.slider(
@@ -628,7 +603,6 @@ if run_btn:
                 ["All", "Fraud Only", "Legitimate Only"]
             )
         
-        # Apply filters
         filtered = txns[
             (txns['amount'] >= amount_filter[0]) & 
             (txns['amount'] <= amount_filter[1])
@@ -638,10 +612,8 @@ if run_btn:
         elif fraud_filter == "Legitimate Only":
             filtered = filtered[filtered['is_fraud'] == 0]
         
-        # Show filtered data
         st.dataframe(filtered, use_container_width=True)
         
-        # Visualizations
         st.plotly_chart(px.histogram(filtered, x='amount', color='is_fraud',
                        title='Amount Distribution by Fraud Status'), use_container_width=True)
         
@@ -652,15 +624,21 @@ if run_btn:
     with tab3:
         st.subheader("Model Performance Comparison")
         
-        # Metrics comparison
-        fig = px.bar(results_df.melt(id_vars='Model'), 
-                    x='Model', y='value', color='variable',
-                    barmode='group', facet_col='variable',
-                    facet_col_wrap=3, height=500,
+        melted_df = results_df.melt(id_vars='Model', 
+                                  var_name='Metric', 
+                                  value_name='Score')
+        
+        fig = px.bar(melted_df, 
+                    x='Model', 
+                    y='Score', 
+                    color='Metric',
+                    barmode='group', 
+                    facet_col='Metric',
+                    facet_col_wrap=3, 
+                    height=500,
                     title='Model Metrics Comparison')
         st.plotly_chart(fig, use_container_width=True)
         
-        # ROC curve comparison
         fig_roc = go.Figure()
         for name, data in roc_data.items():
             fig_roc.add_trace(go.Scatter(
@@ -676,7 +654,6 @@ if run_btn:
         )
         st.plotly_chart(fig_roc, use_container_width=True)
         
-        # Model-specific details
         for model_name in results_df['Model']:
             with st.expander(f"{model_name} Details", expanded=False):
                 col1, col2 = st.columns(2)
@@ -732,7 +709,6 @@ if run_btn:
         st.write("Configuration options coming soon...")
 
 else:
-    # Welcome message (Dashboard tab)
     with tab1:
         st.info("Configure parameters in the sidebar and click 'Run Analysis' to begin.")
         
@@ -748,7 +724,6 @@ else:
             </div>
             """, unsafe_allow_html=True)
     
-    # Empty states for other tabs
     with tab2:
         st.info("Run analysis to explore transaction data")
     
