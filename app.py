@@ -35,7 +35,6 @@ SEED = 42
 np.random.seed(SEED)
 random.seed(SEED)
 
-
 # Configuration
 DEFAULT_CONFIG = {
     "N_CUSTOMERS": 2000,
@@ -362,13 +361,15 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             'Precision': precision_score(y_test, y_pred, zero_division=0),
             'Recall': recall_score(y_test, y_pred, zero_division=0),
             'F1': f1_score(y_test, y_pred, zero_division=0),
-            'ROC AUC': roc_auc_score(y_test, y_proba) if y_proba is not None else None
         }
-        results.append(metrics)
-
+        
+        # Only add ROC AUC if the model supports probability predictions
         if y_proba is not None:
+            metrics['ROC AUC'] = roc_auc_score(y_test, y_proba)
             fpr, tpr, _ = roc_curve(y_test, y_proba)
             roc_data[name] = {'fpr': fpr, 'tpr': tpr}
+        
+        results.append(metrics)
         
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
         ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax1, cmap='Blues')
@@ -586,24 +587,29 @@ if run_btn:
         
         st.markdown("##### Evaluation Metrics")
         metrics_df = results_df.copy()
-        metrics_df['ROC AUC'] = metrics_df['ROC AUC'].apply(lambda x: f"{x:.3f}" if not pd.isna(x) else "N/A")
+        
+        # Format metrics safely
+        if 'ROC AUC' in metrics_df.columns:
+            metrics_df['ROC AUC'] = metrics_df['ROC AUC'].apply(lambda x: f"{x:.3f}" if not pd.isna(x) else "N/A")
+        
         for col in ['Accuracy', 'Precision', 'Recall', 'F1']:
-            metrics_df[col] = metrics_df[col].apply(lambda x: f"{x:.2%}" if not pd.isna(x) else "N/A")
+            if col in metrics_df.columns:
+                metrics_df[col] = metrics_df[col].apply(lambda x: f"{x:.2%}" if not pd.isna(x) else "N/A")
+        
+        # Create column config dynamically
+        column_config = {"Model": st.column_config.TextColumn("Model")}
+        for col in ['Accuracy', 'Precision', 'Recall', 'F1', 'ROC AUC']:
+            if col in metrics_df.columns:
+                column_config[col] = st.column_config.TextColumn(col)
         
         st.dataframe(
             metrics_df,
-            column_config={
-                "Model": st.column_config.TextColumn("Model"),
-                "Accuracy": st.column_config.TextColumn("Accuracy"),
-                "Precision": st.column_config.TextColumn("Precision"),
-                "Recall": st.column_config.TextColumn("Recall"),
-                "F1": st.column_config.TextColumn("F1 Score"),
-                "ROC AUC": st.column_config.TextColumn("ROC AUC")
-            },
+            column_config=column_config,
             hide_index=True,
             use_container_width=True
         )
         
+        # Only show ROC curves if we have ROC data
         if len(roc_data) > 0:
             st.markdown("##### ROC Curves")
             roc_fig = go.Figure()
@@ -611,12 +617,14 @@ if run_btn:
                             x0=0, x1=1, y0=0, y1=1)
             
             for model_name in roc_data:
-                roc_fig.add_trace(go.Scatter(
-                    x=roc_data[model_name]['fpr'],
-                    y=roc_data[model_name]['tpr'],
-                    name=f'{model_name} (AUC = {results_df[results_df["Model"]==model_name]["ROC AUC"].values[0]:.3f})',
-                    mode='lines'
-                ))
+                if model_name in results_df['Model'].values:
+                    auc_value = results_df.loc[results_df['Model'] == model_name, 'ROC AUC'].values[0]
+                    roc_fig.add_trace(go.Scatter(
+                        x=roc_data[model_name]['fpr'],
+                        y=roc_data[model_name]['tpr'],
+                        name=f'{model_name} (AUC = {auc_value:.3f})',
+                        mode='lines'
+                    ))
             
             roc_fig.update_layout(
                 xaxis_title='False Positive Rate',
@@ -627,6 +635,7 @@ if run_btn:
             )
             st.plotly_chart(roc_fig, use_container_width=True)
         
+        # Show model evaluation plots
         model_mapping = {
             'Logistic Regression': 'LogReg',
             'Random Forest': 'RF',
