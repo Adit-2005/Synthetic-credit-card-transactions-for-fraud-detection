@@ -74,6 +74,7 @@ def weighted_choice(choices, weights):
     r = random.random() * cum[-1]
     return choices[np.searchsorted(cum, r)]
 
+@st.cache_data(show_spinner="Generating synthetic transactions...")
 def generate_transactions(config=None, seed=SEED):
     if config is None:
         config = DEFAULT_CONFIG.copy()
@@ -299,6 +300,7 @@ def prepare_features(txns):
     y = txns['is_fraud'].astype(int).values
     return X, y
 
+@st.cache_data(show_spinner="Training models...")
 def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     model_mapping = {
         'Logistic Regression': 'LogReg',
@@ -390,7 +392,8 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         plt.close(fig)
 
     results_df = pd.DataFrame(results)
-    return results_df, figs, roc_data
+    return results_df, figs, roc_data, models
+
 def plot_feature_importance(model, X, model_name):
     if hasattr(model, 'feature_importances_'):
         importances = model.feature_importances_
@@ -534,7 +537,7 @@ if run_btn:
         X, y = prepare_features(txns)
         
         st.write("🤖 Training models...")
-        results_df, figs, roc_data = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
+        results_df, figs, roc_data, models = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
         
         status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
     
