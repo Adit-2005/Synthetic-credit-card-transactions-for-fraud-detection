@@ -363,7 +363,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             'F1': f1_score(y_test, y_pred, zero_division=0),
         }
         
-        # Only add ROC AUC if the model supports probability predictions
         if y_proba is not None:
             metrics['ROC AUC'] = roc_auc_score(y_test, y_proba)
             fpr, tpr, _ = roc_curve(y_test, y_proba)
@@ -714,15 +713,18 @@ if run_btn:
                                             txns['mcc'].unique(), 
                                             default=txns['mcc'].unique())
         
-        # Apply filters
-        display_data = txns[
+        # Apply filters first
+        filtered_data = txns[
             (txns['is_fraud'].isin([1] if show_fraud_only else [0, 1])) &
             (txns['amount'] >= min_amount) &
             (txns['amount'] <= max_amount) &
             (txns['channel'].isin(selected_channels)) &
             (txns['home_region'].isin(selected_regions)) &
             (txns['mcc'].isin(selected_mcc))
-        ].sample(min(sample_size, len(display_data)))
+        ]
+        
+        # Then sample from the filtered data
+        display_data = filtered_data.sample(min(sample_size, len(filtered_data)))
         
         # Display the data
         st.dataframe(
