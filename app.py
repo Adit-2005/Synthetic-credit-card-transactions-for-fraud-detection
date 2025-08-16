@@ -452,7 +452,10 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         plt.close(fig)
 
     results_df = pd.DataFrame(results)
-    return results_df, figs, roc_datadef plot_feature_importance(model, X, model_name):
+       results_df = pd.DataFrame(results)
+    return results_df, figs, roc_data
+
+def plot_feature_importance(model, X, model_name):
     if hasattr(model, 'feature_importances_'):
         importances = model.feature_importances_
     elif hasattr(model, 'coef_'):
