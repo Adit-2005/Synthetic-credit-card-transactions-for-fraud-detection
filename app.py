@@ -140,18 +140,6 @@ if run_btn:
         col1.metric("Total Transactions", f"{len(txns):,}")
         col2.metric("Fraud Cases", f"{txns['is_fraud'].sum():,}", f"{fraud_rate:.2f}%")
         col3.metric("Average Amount", f"${txns['amount'].mean():.2f}")
-        
-        st.subheader("Fraud by Merchant Category")
-        mcc_fraud = txns.groupby('mcc')['is_fraud'].mean().sort_values(ascending=False).head(10)
-        fig = px.bar(
-            mcc_fraud.reset_index(),
-            x='mcc',
-            y='is_fraud',
-            color='is_fraud',
-            color_continuous_scale='Reds',
-            labels={'mcc': 'MCC Code', 'is_fraud': 'Fraud Rate'}
-        )
-        st.plotly_chart(fig, use_container_width=True)
     
     # ----- Exploration -----
     with tab2:
@@ -185,6 +173,7 @@ if run_btn:
     with tab5:
         st.subheader("Generated Synthetic Dataset")
         st.write(f"Showing {len(txns):,} transactions")
+        st.write("✅ Dataset Columns:", txns.columns.tolist())  # Debug line
 
         # --- Filters ---
         col1, col2, col3 = st.columns(3)
@@ -192,38 +181,42 @@ if run_btn:
         fraud_filter = col1.selectbox("Fraud Status", ["All", "Fraud Only", "Legit Only"])
         region_filter = col2.multiselect(
             "Customer Region",
-            txns["home_region"].unique().tolist(),
-            default=txns["home_region"].unique().tolist()
+            txns["home_region"].unique().tolist() if "home_region" in txns.columns else [],
+            default=txns["home_region"].unique().tolist() if "home_region" in txns.columns else []
         )
         mcc_filter = col3.multiselect(
             "Merchant Category (MCC)",
-            txns["mcc"].unique().tolist(),
-            default=txns["mcc"].unique().tolist()
+            txns["mcc"].unique().tolist() if "mcc" in txns.columns else [],
+            default=txns["mcc"].unique().tolist() if "mcc" in txns.columns else []
         )
 
-        # --- Search ---
+        # --- Apply filters ---
+        filtered_txns = txns.copy()
+        if "is_fraud" in filtered_txns.columns:
+            if fraud_filter == "Fraud Only":
+                filtered_txns = filtered_txns[filtered_txns["is_fraud"] == 1]
+            elif fraud_filter == "Legit Only":
+                filtered_txns = filtered_txns[filtered_txns["is_fraud"] == 0]
+
+        if "home_region" in filtered_txns.columns:
+            filtered_txns = filtered_txns[filtered_txns["home_region"].isin(region_filter)]
+
+        if "mcc" in filtered_txns.columns:
+            filtered_txns = filtered_txns[filtered_txns["mcc"].isin(mcc_filter)]
+
+        # --- Safe Search ---
         search_term = st.text_input(
             "🔎 Search by Transaction ID, Customer ID, or Merchant ID",
             value="",
             placeholder="Enter ID..."
         )
 
-        # --- Apply filters ---
-        filtered_txns = txns.copy()
-        if fraud_filter == "Fraud Only":
-            filtered_txns = filtered_txns[filtered_txns["is_fraud"] == 1]
-        elif fraud_filter == "Legit Only":
-            filtered_txns = filtered_txns[filtered_txns["is_fraud"] == 0]
-
-        filtered_txns = filtered_txns[filtered_txns["home_region"].isin(region_filter)]
-        filtered_txns = filtered_txns[filtered_txns["mcc"].isin(mcc_filter)]
-
         if search_term.strip():
-            filtered_txns = filtered_txns[
-                filtered_txns["transaction_id"].str.contains(search_term, case=False, na=False) |
-                filtered_txns["customer_id"].str.contains(search_term, case=False, na=False) |
-                filtered_txns["merchant_id"].str.contains(search_term, case=False, na=False)
-            ]
+            mask = pd.Series([False] * len(filtered_txns))
+            for col in ["transaction_id", "customer_id", "merchant_id"]:
+                if col in filtered_txns.columns:
+                    mask |= filtered_txns[col].astype(str).str.contains(search_term, case=False, na=False)
+            filtered_txns = filtered_txns[mask]
 
         # --- Show Data ---
         if len(filtered_txns) > 10000:
