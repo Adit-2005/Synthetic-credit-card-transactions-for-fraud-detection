@@ -728,4 +728,4 @@ else:
         st.info("Run analysis to access advanced settings")
 
 st.markdown("---")
-st.caption("© 2025 Fraud Detection Pro | v2.2 | Enhanced Analytics")
+st.caption("© 2024 Fraud Detection Pro | v2.2 | Enhanced Analytics")
