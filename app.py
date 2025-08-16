@@ -35,6 +35,7 @@ SEED = 42
 np.random.seed(SEED)
 random.seed(SEED)
 
+
 # Configuration
 DEFAULT_CONFIG = {
     "N_CUSTOMERS": 2000,
