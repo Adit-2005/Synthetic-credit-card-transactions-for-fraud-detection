@@ -314,9 +314,9 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         models_to_run = [model_mapping[m] for m in models_to_run if m in model_mapping]
     
     X_train, X_test, y_train, y_test = train_test_split(X, y, 
-                                                       test_size=0.2, 
-                                                       random_state=seed, 
-                                                       stratify=y)
+                                                      test_size=0.2, 
+                                                      random_state=seed, 
+                                                      stratify=y)
     
     models = {
         'LogReg': LogisticRegression(max_iter=200, 
@@ -333,17 +333,17 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         'KNN': KNeighborsClassifier(n_neighbors=15)
     }
     
-  if HAVE_XGB:
-    models['XGB'] = XGBClassifier(
-        n_estimators=300, 
-        max_depth=6, 
-        learning_rate=0.08,
-        subsample=0.8, 
-        colsample_bytree=0.8, 
-        reg_lambda=1.0,
-        random_state=seed,
-        scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
-    )
+    if HAVE_XGB:
+        models['XGB'] = XGBClassifier(
+            n_estimators=300,
+            max_depth=6,
+            learning_rate=0.08,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_lambda=1.0,
+            random_state=seed,
+            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
+        )
     
     results = []
     figs = {}
@@ -391,7 +391,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
 
     results_df = pd.DataFrame(results)
     return results_df, figs, roc_data
-
 def plot_feature_importance(model, X, model_name):
     if hasattr(model, 'feature_importances_'):
         importances = model.feature_importances_
