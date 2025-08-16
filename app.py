@@ -621,61 +621,61 @@ if run_btn:
                        title='Transactions by Hour and Amount'), use_container_width=True)
     
     # Models Tab
-    with tab3:
-    st.subheader("Model Performance Comparison")
-    
-    # Corrected metrics comparison
-    if not results_df.empty:
-        # First melt the dataframe properly
-        melted_df = pd.melt(results_df, 
-                          id_vars=['Model'], 
-                          var_name='Metric', 
-                          value_name='Score')
+        with tab3:
+        st.subheader("Model Performance Comparison")
         
-        # Then create the plot
-        fig = px.bar(melted_df, 
-                    x='Model', 
-                    y='Score', 
-                    color='Metric',
-                    barmode='group',
-                    facet_col='Metric',
-                    facet_col_wrap=3,
-                    height=500,
-                    title='Model Metrics Comparison')
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # ROC curve comparison
-        if roc_data:
-            fig_roc = go.Figure()
-            for name, data in roc_data.items():
-                fig_roc.add_trace(go.Scatter(
-                    x=data['fpr'], 
-                    y=data['tpr'],
-                    name=f'{name} (AUC = {results_df[results_df["Model"]==name]["ROC AUC"].values[0]:.3f})',
-                    mode='lines'
-                ))
-            fig_roc.update_layout(
-                title='ROC Curve Comparison',
-                xaxis_title='False Positive Rate',
-                yaxis_title='True Positive Rate',
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig_roc, use_container_width=True)
-        
-        # Model-specific details
-        for model_name in results_df['Model']:
-            with st.expander(f"{model_name} Details", expanded=False):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.pyplot(figs.get(model_name))
-                with col2:
-                    model = models.get(model_name)
-                    if model is not None:
-                        fig_fi = plot_feature_importance(model, X, model_name)
-                        if fig_fi:
-                            st.plotly_chart(fig_fi, use_container_width=True)
-    else:
-        st.warning("No model results to display. Please run the analysis first.")
+        # Corrected metrics comparison
+        if not results_df.empty:
+            # First melt the dataframe properly
+            melted_df = pd.melt(results_df, 
+                              id_vars=['Model'], 
+                              var_name='Metric', 
+                              value_name='Score')
+            
+            # Then create the plot
+            fig = px.bar(melted_df, 
+                        x='Model', 
+                        y='Score', 
+                        color='Metric',
+                        barmode='group',
+                        facet_col='Metric',
+                        facet_col_wrap=3,
+                        height=500,
+                        title='Model Metrics Comparison')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # ROC curve comparison
+            if roc_data:
+                fig_roc = go.Figure()
+                for name, data in roc_data.items():
+                    fig_roc.add_trace(go.Scatter(
+                        x=data['fpr'], 
+                        y=data['tpr'],
+                        name=f'{name} (AUC = {results_df[results_df["Model"]==name]["ROC AUC"].values[0]:.3f})',
+                        mode='lines'
+                    ))
+                fig_roc.update_layout(
+                    title='ROC Curve Comparison',
+                    xaxis_title='False Positive Rate',
+                    yaxis_title='True Positive Rate',
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig_roc, use_container_width=True)
+            
+            # Model-specific details
+            for model_name in results_df['Model']:
+                with st.expander(f"{model_name} Details", expanded=False):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.pyplot(figs.get(model_name))
+                    with col2:
+                        model = models.get(model_name)
+                        if model is not None:
+                            fig_fi = plot_feature_importance(model, X, model_name)
+                            if fig_fi:
+                                st.plotly_chart(fig_fi, use_container_width=True)
+        else:
+            st.warning("No model results to display. Please run the analysis first.")
     
     # Export Tab
     with tab4:
