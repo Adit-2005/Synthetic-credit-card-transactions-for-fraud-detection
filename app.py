@@ -345,7 +345,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             reg_lambda=1.0,
             random_state=seed,
             scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
-    
+        )
     results = []
     figs = {}
     roc_data = {}
