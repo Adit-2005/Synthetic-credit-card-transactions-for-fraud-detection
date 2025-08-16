@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import uuid
 import random
 import math
+import io
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
@@ -46,7 +47,7 @@ DEFAULT_CONFIG = {
 }
 
 # ==============================================
-# CSS ANIMATIONS AND UI ENHANCEMENTS (ADDED)
+# CSS ANIMATIONS AND UI ENHANCEMENTS
 # ==============================================
 st.markdown("""
 <style>
@@ -106,7 +107,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================
-# ORIGINAL CODE (UNCHANGED)
+# HELPER FUNCTIONS
 # ==============================================
 def rand_id(prefix):
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
@@ -404,7 +405,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             reg_lambda=1.0,
             random_state=seed,
             scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
-        )
     
     results = []
     figs = {}
@@ -453,8 +453,24 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     results_df = pd.DataFrame(results)
     return results_df, figs, roc_data
 
+def plot_feature_importance(model, X, model_name):
+    if hasattr(model, 'feature_importances_'):
+        importances = model.feature_importances_
+    elif hasattr(model, 'coef_'):
+        importances = np.abs(model.coef_[0])
+    else:
+        return None
+        
+    features = X.columns
+    indices = np.argsort(importances)[-15:]  # Top 15 features
+    fig = px.bar(x=importances[indices], y=features[indices], 
+                 orientation='h', title=f'{model_name} Feature Importance',
+                 labels={'x': 'Importance', 'y': 'Feature'})
+    fig.update_layout(showlegend=False)
+    return fig
+
 # ==============================================
-# STREAMLIT UI WITH ENHANCEMENTS
+# STREAMLIT UI
 # ==============================================
 st.set_page_config(
     page_title="Fraud Detection Pro",
@@ -462,8 +478,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Custom CSS for animations and UI polish (already added at the top)
 
 with st.sidebar:
     st.title("🔍 Fraud Detection Pro")
@@ -522,6 +536,9 @@ with st.sidebar:
 st.title("💳 Fraud Detection Dashboard")
 st.caption("Advanced synthetic transaction analysis system")
 
+# Create tabs (always visible)
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export", "⚙️ Settings"])
+
 if run_btn:
     with st.status("🔍 Processing...", expanded=True) as status:
         st.write("📊 Generating synthetic transactions...")
@@ -544,8 +561,7 @@ if run_btn:
         
         status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export", "⚙️ Settings"])
-    
+    # Dashboard Tab
     with tab1:
         # Card-style metrics
         col1, col2, col3 = st.columns(3)
@@ -573,7 +589,7 @@ if run_btn:
         
         st.divider()
         
-        # Fraud timeline with enhanced UI
+        # Fraud timeline
         st.subheader("Fraud Timeline")
         fig = px.area(
             txns.groupby(txns['timestamp'].dt.hour)['is_fraud'].mean().reset_index(),
@@ -588,34 +604,163 @@ if run_btn:
             hovermode="x"
         )
         st.plotly_chart(fig, use_container_width=True)
+        
+        # EDA Plots
+        st.subheader("Exploratory Data Analysis")
+        eda_figs = plot_eda(txns)
+        st.pyplot(eda_figs['overview'])
     
-    # ... (rest of your original tab code remains unchanged)
+    # Exploration Tab
+    with tab2:
+        st.subheader("Transaction Explorer")
+        
+        # Add filtering controls
+        col1, col2 = st.columns(2)
+        with col1:
+            amount_filter = st.slider(
+                "Filter by Amount",
+                float(txns['amount'].min()),
+                float(txns['amount'].max()),
+                (float(txns['amount'].min()), float(txns['amount'].max()))
+            )
+        with col2:
+            fraud_filter = st.selectbox(
+                "Filter by Fraud Status",
+                ["All", "Fraud Only", "Legitimate Only"]
+            )
+        
+        # Apply filters
+        filtered = txns[
+            (txns['amount'] >= amount_filter[0]) & 
+            (txns['amount'] <= amount_filter[1])
+        ]
+        if fraud_filter == "Fraud Only":
+            filtered = filtered[filtered['is_fraud'] == 1]
+        elif fraud_filter == "Legitimate Only":
+            filtered = filtered[filtered['is_fraud'] == 0]
+        
+        # Show filtered data
+        st.dataframe(filtered, use_container_width=True)
+        
+        # Visualizations
+        st.plotly_chart(px.histogram(filtered, x='amount', color='is_fraud',
+                       title='Amount Distribution by Fraud Status'), use_container_width=True)
+        
+        st.plotly_chart(px.scatter(filtered, x='hour', y='amount', color='is_fraud',
+                       title='Transactions by Hour and Amount'), use_container_width=True)
+    
+    # Models Tab
+    with tab3:
+        st.subheader("Model Performance Comparison")
+        
+        # Metrics comparison
+        fig = px.bar(results_df.melt(id_vars='Model'), 
+                    x='Model', y='value', color='variable',
+                    barmode='group', facet_col='variable',
+                    facet_col_wrap=3, height=500,
+                    title='Model Metrics Comparison')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # ROC curve comparison
+        fig_roc = go.Figure()
+        for name, data in roc_data.items():
+            fig_roc.add_trace(go.Scatter(
+                x=data['fpr'], y=data['tpr'],
+                name=f'{name} (AUC = {results_df[results_df["Model"]==name]["ROC AUC"].values[0]:.3f})',
+                mode='lines'
+            ))
+        fig_roc.update_layout(
+            title='ROC Curve Comparison',
+            xaxis_title='False Positive Rate',
+            yaxis_title='True Positive Rate',
+            hovermode='x unified'
+        )
+        st.plotly_chart(fig_roc, use_container_width=True)
+        
+        # Model-specific details
+        for model_name in results_df['Model']:
+            with st.expander(f"{model_name} Details", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.pyplot(figs[model_name])
+                with col2:
+                    model = models[model_name]
+                    fig_fi = plot_feature_importance(model, X, model_name)
+                    if fig_fi:
+                        st.plotly_chart(fig_fi, use_container_width=True)
+    
+    # Export Tab
+    with tab4:
+        st.subheader("Data Export")
+        
+        export_format = st.radio(
+            "Export Format",
+            ["CSV", "Excel", "JSON"],
+            horizontal=True
+        )
+        
+        if st.button("💾 Export Transaction Data"):
+            buffer = io.BytesIO()
+            if export_format == "CSV":
+                txns.to_csv(buffer, index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=buffer,
+                    file_name="fraud_transactions.csv",
+                    mime="text/csv"
+                )
+            elif export_format == "Excel":
+                with pd.ExcelWriter(buffer) as writer:
+                    txns.to_excel(writer, index=False)
+                st.download_button(
+                    label="Download Excel",
+                    data=buffer,
+                    file_name="fraud_transactions.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
+            elif export_format == "JSON":
+                txns.to_json(buffer, orient="records")
+                st.download_button(
+                    label="Download JSON",
+                    data=buffer,
+                    file_name="fraud_transactions.json",
+                    mime="application/json"
+                )
+    
+    # Settings Tab
+    with tab5:
+        st.subheader("Advanced Settings")
+        st.write("Configuration options coming soon...")
 
 else:
-    st.info("Configure parameters in the sidebar and click 'Run Analysis' to begin.")
+    # Welcome message (Dashboard tab)
+    with tab1:
+        st.info("Configure parameters in the sidebar and click 'Run Analysis' to begin.")
+        
+        with st.expander("📌 Quick Start Guide", expanded=True):
+            st.markdown("""
+            <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px;">
+                <h3 style="margin-top:0;">Getting Started</h3>
+                <ol>
+                    <li>Set transaction volume and fraud rate</li>
+                    <li>Select machine learning models</li>
+                    <li>Click "Run Analysis" to generate results</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
     
-    with st.expander("📌 Quick Start Guide", expanded=True):
-        st.markdown("""
-        <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px;">
-            <h3 style="margin-top:0;">Getting Started</h3>
-            <ol>
-                <li>Set transaction volume and fraud rate</li>
-                <li>Select machine learning models</li>
-                <li>Click "Run Analysis" to generate results</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
+    # Empty states for other tabs
+    with tab2:
+        st.info("Run analysis to explore transaction data")
+    
+    with tab3:
+        st.info("Run analysis to view model performance")
+    
+    with tab4:
+        st.info("Run analysis to enable data export")
+    
+    with tab5:
+        st.info("Run analysis to access advanced settings")
 
 st.markdown("---")
 st.caption("© 2023 Fraud Detection Pro | v2.1 | Enhanced UI")
-
-# ==============================================
-# KEY IMPROVEMENTS SUMMARY:
-# ==============================================
-# 1. Added CSS animations (fade-in, hover effects)
-# 2. Card-style metrics with shadows
-# 3. Professional sidebar with gradient background
-# 4. Custom spinner animation
-# 5. Enhanced table hover effects
-# 6. Improved visual hierarchy
-# 7. All original functionality preserved
