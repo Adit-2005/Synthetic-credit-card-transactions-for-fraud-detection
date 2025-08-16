@@ -214,70 +214,69 @@ def generate_transactions(config=None, seed=SEED):
         "merchants": merchants
     }
 
-def plot_eda(txns):
+def plot_interactive_eda(txns):
+    """Enhanced EDA with Plotly visualizations"""
     figs = {}
-    fig = plt.figure(figsize=(18, 15))
-    gs = gridspec.GridSpec(3, 2, figure=fig)
     
-    # Plot 1: Fraud Distribution
-    ax1 = plt.subplot(gs[0, 0])
+    # 1. Fraud Distribution (Pie Chart)
     fraud_counts = txns['is_fraud'].value_counts()
-    colors = ['#2ecc71', '#e74c3c']
-    ax1.pie(fraud_counts, labels=['Legitimate', 'Fraud'], autopct='%1.1f%%', 
-            colors=colors, startangle=90, wedgeprops=dict(width=0.4))
-    ax1.set_title('Transaction Fraud Distribution', fontsize=14, pad=20)
+    figs['fraud_pie'] = px.pie(
+        values=fraud_counts.values,
+        names=['Legitimate', 'Fraud'],
+        title='Transaction Fraud Distribution',
+        color=['Legitimate', 'Fraud'],
+        color_discrete_map={'Legitimate':'#2ecc71', 'Fraud':'#e74c3c'},
+        hole=0.4
+    )
     
-    # Plot 2: Amount Distribution
-    ax2 = plt.subplot(gs[0, 1])
-    for label, grp in txns.groupby('is_fraud'):
-        sns.kdeplot(np.log1p(grp['amount']), ax=ax2, 
-                   label='Fraud' if label else 'Legitimate', 
-                   linewidth=2)
-    ax2.set_xlabel('Log(1+Amount)')
-    ax2.set_ylabel('Density')
-    ax2.set_title('Transaction Amount Distribution by Fraud Status')
-    ax2.legend()
+    # 2. Amount Distribution (Violin Plot)
+    figs['amount_dist'] = px.violin(
+        txns, 
+        x='is_fraud', 
+        y='amount', 
+        color='is_fraud',
+        box=True,
+        points="all",
+        title='Transaction Amount by Fraud Status',
+        labels={'is_fraud': 'Fraud Status', 'amount': 'Amount'},
+        color_discrete_map={0:'#2ecc71', 1:'#e74c3c'}
+    )
     
-    # Plot 3: Hourly Fraud Rate
-    ax3 = plt.subplot(gs[1, 0])
-    hourly_fraud = txns.groupby('hour')['is_fraud'].mean()
-    ax3.plot(hourly_fraud.index, hourly_fraud.values, 
-            marker='o', color='#3498db', linewidth=2)
-    ax3.fill_between(hourly_fraud.index, hourly_fraud.values, 
-                    color='#3498db', alpha=0.2)
-    ax3.set_xlabel('Hour of Day')
-    ax3.set_ylabel('Fraud Rate')
-    ax3.set_title('Fraud Rate by Hour of Day')
-    ax3.grid(True, linestyle='--', alpha=0.7)
+    # 3. Hourly Fraud Rate (Line Chart)
+    hourly_data = txns.groupby(['hour', 'is_fraud']).size().unstack().fillna(0)
+    hourly_data['fraud_rate'] = hourly_data[1] / (hourly_data[0] + hourly_data[1])
+    figs['hourly_trend'] = px.line(
+        hourly_data.reset_index(),
+        x='hour',
+        y='fraud_rate',
+        title='Fraud Rate by Hour of Day',
+        labels={'hour': 'Hour of Day', 'fraud_rate': 'Fraud Rate'}
+    ).update_traces(line=dict(color='#e74c3c', width=3))
     
-    # Plot 4: MCC Fraud Rate
-    ax4 = plt.subplot(gs[1, 1])
-    mcc_fraud = txns.groupby('mcc')['is_fraud'].mean().sort_values(ascending=False)
-    mcc_fraud.plot(kind='bar', color='#9b59b6', ax=ax4)
-    ax4.set_xlabel('Merchant Category Code')
-    ax4.set_ylabel('Fraud Rate')
-    ax4.set_title('Fraud Rate by Merchant Category')
-    ax4.tick_params(axis='x', rotation=45)
+    # 4. Geographic Distribution (Scatter Map)
+    sample_txns = txns.sample(min(5000, len(txns)))
+    figs['geo_dist'] = px.scatter_geo(
+        sample_txns,
+        lat='home_lat',
+        lon='home_lon',
+        color='is_fraud',
+        hover_data=['amount', 'hour'],
+        title='Geographic Distribution of Transactions',
+        color_discrete_map={0:'#2ecc71', 1:'#e74c3c'}
+    )
     
-    # Plot 5: Geographic Distribution
-    ax5 = plt.subplot(gs[2, :])
-    fraud_locations = txns[txns['is_fraud'] == 1]
-    legit_mask = txns['is_fraud'] == 0
-    sample_size = min(10000, len(txns[legit_mask]))
-    legit_locations = txns[legit_mask].sample(n=sample_size)
+    # 5. MCC Fraud Heatmap
+    mcc_data = txns.groupby('mcc')['is_fraud'].agg(['count', 'mean']).reset_index()
+    mcc_data.columns = ['MCC', 'Total Transactions', 'Fraud Rate']
+    figs['mcc_heatmap'] = px.treemap(
+        mcc_data,
+        path=['MCC'],
+        values='Total Transactions',
+        color='Fraud Rate',
+        title='Fraud Rate by Merchant Category Code',
+        color_continuous_scale='RdYlGn_r'
+    )
     
-    ax5.scatter(legit_locations['home_lon'], legit_locations['home_lat'], 
-               color='#2ecc71', alpha=0.3, label='Legitimate', s=10)
-    ax5.scatter(fraud_locations['home_lon'], fraud_locations['home_lat'], 
-               color='#e74c3c', alpha=0.7, label='Fraud', s=20)
-    ax5.set_xlabel('Longitude')
-    ax5.set_ylabel('Latitude')
-    ax5.set_title('Geographic Distribution of Fraudulent Transactions')
-    ax5.legend()
-    ax5.grid(True, linestyle='--', alpha=0.5)
-    
-    plt.tight_layout()
-    figs['overview'] = fig
     return figs
 
 def prepare_features(txns):
@@ -394,21 +393,60 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     results_df = pd.DataFrame(results)
     return results_df, figs, roc_data, models
 
-def plot_feature_importance(model, X, model_name):
-    if hasattr(model, 'feature_importances_'):
-        importances = model.feature_importances_
-    elif hasattr(model, 'coef_'):
-        importances = np.abs(model.coef_[0])
-    else:
-        return None
-        
-    features = X.columns
-    indices = np.argsort(importances)[-15:]  # Top 15 features
-    fig = px.bar(x=importances[indices], y=features[indices], 
-                 orientation='h', title=f'{model_name} Feature Importance',
-                 labels={'x': 'Importance', 'y': 'Feature'})
-    fig.update_layout(showlegend=False)
-    return fig
+def enhanced_model_comparison(results_df):
+    """Interactive model comparison with table and parallel coordinates"""
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.markdown("### Model Performance Summary")
+        display_df = results_df.copy()
+        display_df['Best'] = display_df.idxmax(axis=0)
+        st.dataframe(
+            display_df.style
+            .highlight_max(axis=0, color='#2ecc71')
+            .format("{:.3f}"),
+            use_container_width=True
+        )
+    
+    with col2:
+        fig = px.parallel_coordinates(
+            results_df,
+            color='ROC AUC',
+            dimensions=['Accuracy', 'Precision', 'Recall', 'F1', 'ROC AUC'],
+            color_continuous_scale=px.colors.diverging.Tealrose,
+            title='Model Performance Comparison'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+def detailed_feature_analysis(model, X, y, model_name):
+    """Comprehensive feature analysis with multiple tabs"""
+    tabs = st.tabs(["📊 Importance", "📈 Partial Dependence", "🔍 Interactions"])
+    
+    with tabs[0]:
+        if hasattr(model, 'feature_importances_'):
+            importance_df = pd.DataFrame({
+                'Feature': X.columns,
+                'Importance': model.feature_importances_
+            }).sort_values('Importance', ascending=False).head(20)
+            
+            fig = px.bar(
+                importance_df,
+                x='Importance',
+                y='Feature',
+                orientation='h',
+                title=f'{model_name} - Top 20 Features'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Feature importance not available for this model type")
+    
+    with tabs[1]:
+        st.info("Partial dependence plots would show how each feature affects predictions")
+        # Implementation would use sklearn.inspection.partial_dependence
+    
+    with tabs[2]:
+        st.info("Feature interaction analysis would show combined effects")
+        # Implementation would use SHAP or similar
 
 # Streamlit UI
 st.set_page_config(
@@ -418,7 +456,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Removed spinner animation styles
+# Custom CSS
 st.markdown("""
 <style>
     @keyframes fadeIn {
@@ -510,7 +548,6 @@ st.caption("Advanced synthetic transaction analysis system")
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export", "⚙️ Settings"])
 
 if run_btn:
-    # Remove status wrapper and progress messages
     cfg = {
         "N_CUSTOMERS": 2000,
         "N_MERCHANTS": 800,
@@ -530,48 +567,47 @@ if run_btn:
     with tab1:
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3 style="color: #7f8c8d; margin:0;">Total Transactions</h3>
-                <p style="font-size: 2rem; margin:0; color: #2c3e50;">{len(txns):,}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric("Total Transactions", f"{len(txns):,}")
         with col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3 style="color: #7f8c8d; margin:0;">Fraud Cases</h3>
-                <p style="font-size: 2rem; margin:0; color: #e74c3c;">{txns['is_fraud'].sum():,} <span style="font-size: 1rem;">({txns['is_fraud'].mean()*100:.2f}%)</span></p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric("Fraud Cases", 
+                     f"{txns['is_fraud'].sum():,}",
+                     f"{txns['is_fraud'].mean()*100:.2f}%")
         with col3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <h3 style="color: #7f8c8d; margin:0;">Avg Amount</h3>
-                <p style="font-size: 2rem; margin:0; color: #2c3e50;">${txns['amount'].mean():.2f}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric("Avg Amount", f"${txns['amount'].mean():.2f}")
         
         st.divider()
         
-        st.subheader("Fraud Timeline")
-        fig = px.area(
-            txns.groupby(txns['timestamp'].dt.hour)['is_fraud'].mean().reset_index(),
-            x='timestamp',
-            y='is_fraud',
-            labels={'timestamp': 'Hour of Day', 'is_fraud': 'Fraud Rate'},
-            color_discrete_sequence=['#e74c3c']
-        )
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            yaxis_tickformat=".1%",
-            hovermode="x"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Data Preview and Download
+        with st.expander("📁 Transaction Data Preview & Download", expanded=True):
+            st.dataframe(txns.head(100), use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                export_format = st.selectbox(
+                    "Export Format",
+                    ["CSV", "Excel", "JSON"],
+                    key="main_export"
+                )
+            with col2:
+                st.download_button(
+                    "💾 Download Full Dataset",
+                    data=txns.to_csv(index=False) if export_format == "CSV" else 
+                         txns.to_excel(index=False) if export_format == "Excel" else 
+                         txns.to_json(indent=2),
+                    file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.{export_format.lower()}",
+                    mime="text/csv" if export_format == "CSV" else 
+                         "application/vnd.ms-excel" if export_format == "Excel" else 
+                         "application/json"
+                )
         
-        st.subheader("Exploratory Data Analysis")
-        eda_figs = plot_eda(txns)
-        st.pyplot(eda_figs['overview'])
-    
+        st.divider()
+        
+        # Interactive EDA
+        st.subheader("Interactive Data Exploration")
+        eda_figs = plot_interactive_eda(txns)
+        for fig in eda_figs.values():
+            st.plotly_chart(fig, use_container_width=True)
+
     # Exploration Tab
     with tab2:
         st.subheader("Transaction Explorer")
@@ -609,64 +645,15 @@ if run_btn:
     
     # Models Tab
     with tab3:
-        st.subheader("Model Performance Comparison")
+        st.subheader("Enhanced Model Evaluation")
+        enhanced_model_comparison(results_df)
         
-        if not results_df.empty:
-            melted_df = pd.melt(
-                results_df,
-                id_vars=['Model'],
-                var_name='Metric',
-                value_name='Score'
-            )
-            
-            fig = px.bar(
-                melted_df,
-                x='Model',
-                y='Score',
-                color='Metric',
-                barmode='group',
-                facet_col='Metric',
-                facet_col_wrap=3,
-                height=500,
-                title='Model Metrics Comparison'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            if roc_data:
-                fig_roc = go.Figure()
-                for name, data in roc_data.items():
-                    fig_roc.add_trace(
-                        go.Scatter(
-                            x=data['fpr'],
-                            y=data['tpr'],
-                            name=f'{name} (AUC = {results_df[results_df["Model"]==name]["ROC AUC"].values[0]:.3f})',
-                            mode='lines'
-                        )
-                    )
-                fig_roc.update_layout(
-                    title='ROC Curve Comparison',
-                    xaxis_title='False Positive Rate',
-                    yaxis_title='True Positive Rate',
-                    hovermode='x unified'
-                )
-                st.plotly_chart(fig_roc, use_container_width=True)
-            
-            for model_name in results_df['Model']:
-                with st.expander(f"{model_name} Details", expanded=False):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if model_name in figs:
-                            st.pyplot(figs[model_name])
-                    
-                    with col2:
-                        if model_name in models:
-                            fig_fi = plot_feature_importance(models[model_name], X, model_name)
-                            if fig_fi:
-                                st.plotly_chart(fig_fi, use_container_width=True)
-        
-        else:
-            st.warning("No model results to display. Please run the analysis first.")
+        for model_name in results_df['Model']:
+            with st.expander(f"🔍 Detailed Analysis: {model_name}", expanded=False):
+                detailed_feature_analysis(models[model_name], X, y, model_name)
+                
+                if model_name in figs:
+                    st.pyplot(figs[model_name])
     
     # Export Tab
     with tab4:
@@ -741,4 +728,4 @@ else:
         st.info("Run analysis to access advanced settings")
 
 st.markdown("---")
-st.caption("© 2023 Fraud Detection Pro | v2.1 | Enhanced UI")
+st.caption("© 2025 Fraud Detection Pro | v2.2 | Enhanced Analytics")
