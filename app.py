@@ -47,66 +47,6 @@ DEFAULT_CONFIG = {
 }
 
 # ==============================================
-# CSS ANIMATIONS AND UI ENHANCEMENTS
-# ==============================================
-st.markdown("""
-<style>
-    /* Fade-in animations */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    /* Apply animations */
-    .stApp > div, .stButton > button, .stMetric, .stDataFrame, .stPlotlyChart {
-        animation: fadeIn 0.6s ease-out;
-    }
-    
-    /* Hover effects */
-    .stMetric:hover, .stButton>button:hover {
-        transform: translateY(-2px);
-        transition: all 0.2s ease;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
-    }
-    
-    /* Enhanced sidebar */
-    .sidebar .sidebar-content {
-        background: linear-gradient(135deg, #2c3e50, #1a1a2e);
-        color: white;
-        padding: 2rem 1.5rem;
-    }
-    
-    /* Card-style metrics */
-    .metric-card {
-        background: white;
-        border-radius: 10px;
-        padding: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        transition: all 0.3s ease;
-    }
-    
-    /* Table hover */
-    .dataframe tbody tr:hover {
-        background-color: #f8f9fa !important;
-        transform: scale(1.01);
-        transition: all 0.2s ease;
-    }
-    
-    /* Custom spinner */
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    .stSpinner > div > div {
-        border: 3px solid rgba(52, 152, 219, 0.2);
-        border-top-color: #3498db;
-        animation: spin 1s linear infinite;
-        width: 30px !important;
-        height: 30px !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ==============================================
 # HELPER FUNCTIONS
 # ==============================================
 def rand_id(prefix):
@@ -405,7 +345,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             reg_lambda=1.0,
             random_state=seed,
             scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
-        )
     
     results = []
     figs = {}
@@ -452,7 +391,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         plt.close(fig)
 
     results_df = pd.DataFrame(results)
-       results_df = pd.DataFrame(results)
     return results_df, figs, roc_data
 
 def plot_feature_importance(model, X, model_name):
@@ -480,6 +418,64 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Custom CSS for animations and UI polish
+st.markdown("""
+<style>
+    /* Fade-in animations */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Apply animations */
+    .stApp > div, .stButton > button, .stMetric, .stDataFrame, .stPlotlyChart {
+        animation: fadeIn 0.6s ease-out;
+    }
+    
+    /* Hover effects */
+    .stMetric:hover, .stButton>button:hover {
+        transform: translateY(-2px);
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+    }
+    
+    /* Enhanced sidebar */
+    .sidebar .sidebar-content {
+        background: linear-gradient(135deg, #2c3e50, #1a1a2e);
+        color: white;
+        padding: 2rem 1.5rem;
+    }
+    
+    /* Card-style metrics */
+    .metric-card {
+        background: white;
+        border-radius: 10px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
+    }
+    
+    /* Table hover */
+    .dataframe tbody tr:hover {
+        background-color: #f8f9fa !important;
+        transform: scale(1.01);
+        transition: all 0.2s ease;
+    }
+    
+    /* Custom spinner */
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .stSpinner > div > div {
+        border: 3px solid rgba(52, 152, 219, 0.2);
+        border-top-color: #3498db;
+        animation: spin 1s linear infinite;
+        width: 30px !important;
+        height: 30px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("🔍 Fraud Detection Pro")
