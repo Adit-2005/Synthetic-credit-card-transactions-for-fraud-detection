@@ -74,7 +74,7 @@ def weighted_choice(choices, weights):
     r = random.random() * cum[-1]
     return choices[np.searchsorted(cum, r)]
 
-@st.cache_data(show_spinner="Generating synthetic transactions...")
+@st.cache_data
 def generate_transactions(config=None, seed=SEED):
     if config is None:
         config = DEFAULT_CONFIG.copy()
@@ -300,7 +300,7 @@ def prepare_features(txns):
     y = txns['is_fraud'].astype(int).values
     return X, y
 
-@st.cache_data(show_spinner="Training models...")
+@st.cache_data
 def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     model_mapping = {
         'Logistic Regression': 'LogReg',
@@ -418,7 +418,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS - Removed spinner animation styles
 st.markdown("""
 <style>
     @keyframes fadeIn {
@@ -449,16 +449,6 @@ st.markdown("""
         background-color: #f8f9fa !important;
         transform: scale(1.01);
         transition: all 0.2s ease;
-    }
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    .stSpinner > div > div {
-        border: 3px solid rgba(52, 152, 219, 0.2);
-        border-top-color: #3498db;
-        animation: spin 1s linear infinite;
-        width: 30px !important;
-        height: 30px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -520,26 +510,21 @@ st.caption("Advanced synthetic transaction analysis system")
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export", "⚙️ Settings"])
 
 if run_btn:
-    with st.status("🔍 Processing...", expanded=True) as status:
-        st.write("📊 Generating synthetic transactions...")
-        cfg = {
-            "N_CUSTOMERS": 2000,
-            "N_MERCHANTS": 800,
-            "N_TXNS": int(n_txns),
-            "TARGET_FRAUD_RATE": float(target_fraud)/100,
-            "START_DATE": "2025-01-01",
-            "DAYS": 45
-        }
-        out = generate_transactions(config=cfg, seed=int(seed))
-        txns = out['txns']
-        
-        st.write("⚙️ Engineering features...")
-        X, y = prepare_features(txns)
-        
-        st.write("🤖 Training models...")
-        results_df, figs, roc_data, models = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
-        
-        status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+    # Remove status wrapper and progress messages
+    cfg = {
+        "N_CUSTOMERS": 2000,
+        "N_MERCHANTS": 800,
+        "N_TXNS": int(n_txns),
+        "TARGET_FRAUD_RATE": float(target_fraud)/100,
+        "START_DATE": "2025-01-01",
+        "DAYS": 45
+    }
+    out = generate_transactions(config=cfg, seed=int(seed))
+    txns = out['txns']
+    
+    X, y = prepare_features(txns)
+    
+    results_df, figs, roc_data, models = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
     
     # Dashboard Tab
     with tab1:
@@ -627,7 +612,6 @@ if run_btn:
         st.subheader("Model Performance Comparison")
         
         if not results_df.empty:
-            # First melt the dataframe properly
             melted_df = pd.melt(
                 results_df,
                 id_vars=['Model'],
@@ -635,7 +619,6 @@ if run_btn:
                 value_name='Score'
             )
             
-            # Then create the plot
             fig = px.bar(
                 melted_df,
                 x='Model',
@@ -649,7 +632,6 @@ if run_btn:
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # ROC curve visualization
             if roc_data:
                 fig_roc = go.Figure()
                 for name, data in roc_data.items():
@@ -669,7 +651,6 @@ if run_btn:
                 )
                 st.plotly_chart(fig_roc, use_container_width=True)
             
-            # Model details sections
             for model_name in results_df['Model']:
                 with st.expander(f"{model_name} Details", expanded=False):
                     col1, col2 = st.columns(2)
