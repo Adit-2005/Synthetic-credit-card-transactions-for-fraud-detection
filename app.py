@@ -333,17 +333,17 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         'KNN': KNeighborsClassifier(n_neighbors=15)
     }
     
-    if HAVE_XGB:
-        models['XGB'] = XGBClassifier(
-            n_estimators=300, 
-            max_depth=6, 
-            learning_rate=0.08,
-            subsample=0.8, 
-            colsample_bytree=0.8, 
-            reg_lambda=1.0,
-            random_state=seed,
-            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
-        )
+  if HAVE_XGB:
+    models['XGB'] = XGBClassifier(
+        n_estimators=300, 
+        max_depth=6, 
+        learning_rate=0.08,
+        subsample=0.8, 
+        colsample_bytree=0.8, 
+        reg_lambda=1.0,
+        random_state=seed,
+        scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
+    )
     
     results = []
     figs = {}
