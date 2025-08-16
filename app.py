@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))  # Ensure fraud_pipeline.py is importable
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -173,7 +176,6 @@ if run_btn:
     with tab5:
         st.subheader("Generated Synthetic Dataset")
         st.write(f"Showing {len(txns):,} transactions")
-        st.write("✅ Dataset Columns:", txns.columns.tolist())  # Debug line
 
         # --- Filters ---
         col1, col2, col3 = st.columns(3)
