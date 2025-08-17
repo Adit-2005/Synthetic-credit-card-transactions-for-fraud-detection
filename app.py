@@ -361,6 +361,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
                 random_state=seed,
                 tree_method='hist',  # More memory efficient
                 scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
+            )
         except Exception as e:
             st.error(f"Failed to initialize XGBoost: {str(e)}")
             HAVE_XGB = False
