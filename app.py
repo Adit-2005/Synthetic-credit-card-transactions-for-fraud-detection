@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import seaborn as sns
 from datetime import datetime, timedelta
 import uuid
@@ -342,7 +343,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             colsample_bytree=0.8,
             reg_lambda=1.0,
             random_state=seed,
-            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
+            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
         )
     
     results = []
@@ -529,13 +530,13 @@ with st.sidebar:
             )
         
         models_selected = st.multiselect(
-            "Models to Run (Leave empty to skip modeling)",
+            "Models to Run (Leave empty to just generate data)",
             available_models,
             default=default_models
         )
     
     run_btn = st.button(
-        "🚀 Generate Data",
+        "🚀 Generate & Analyze",
         type="primary",
         use_container_width=True
     )
@@ -656,62 +657,48 @@ if run_btn:
                         st.pyplot(figs[model_name])
     else:
         with tab3:
-            st.info("No models selected. Configure models in the sidebar to run analysis.")
+            st.info("No models selected. Data was generated but no models were run.")
     
-    # Export Tab
-    # Export Tab (always available after data generation)
-with tab4:
-    st.subheader("Data Export Options")
-    
-    if "generated_data" in st.session_state:
-        txns = st.session_state.generated_data
+    # Enhanced Export Tab
+    with tab4:
+        st.subheader("Data Export Options")
         
-        st.write("You can download the generated dataset in multiple formats:")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.download_button(
-                "⬇️ Download as CSV",
-                data=txns.to_csv(index=False),
-                file_name="fraud_transactions.csv",
-                mime="text/csv"
-            )
-        with col2:
-            st.download_button(
-                "⬇️ Download as Excel",
-                data=txns.to_excel(index=False),
-                file_name="fraud_transactions.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-        with col3:
-            st.download_button(
-                "⬇️ Download as JSON",
-                data=txns.to_json(indent=2),
-                file_name="fraud_transactions.json",
-                mime="application/json"
-            )
-
-        st.divider()
-        st.subheader("📁 Preview of Generated Data")
-        st.dataframe(txns.head(100), use_container_width=True)
-
-    else:
-        st.info("Generate data to access export options")
-
-        
-        st.write("For customized exports, use the filters in the Exploration tab and download the filtered data:")
-        if 'filtered' in locals():
-            st.download_button(
-                "⬇️ Download Filtered Data (CSV)",
-                data=filtered.to_csv(index=False),
-                file_name="filtered_fraud_transactions.csv",
-                mime="text/csv"
-            )
+        if 'generated_data' in st.session_state:
+            txns = st.session_state.generated_data
+            
+            st.write("Download the generated dataset in your preferred format:")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.download_button(
+                    "💾 Download as CSV",
+                    data=txns.to_csv(index=False),
+                    file_name=f"fraud_data_{n_txns}_txns.csv",
+                    mime="text/csv"
+                )
+            with col2:
+                st.download_button(
+                    "💾 Download as Excel",
+                    data=txns.to_excel(index=False),
+                    file_name=f"fraud_data_{n_txns}_txns.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
+            with col3:
+                st.download_button(
+                    "💾 Download as JSON",
+                    data=txns.to_json(indent=2),
+                    file_name=f"fraud_data_{n_txns}_txns.json",
+                    mime="application/json"
+                )
+            
+            st.divider()
+            st.write("Preview of generated data:")
+            st.dataframe(txns.head(), use_container_width=True)
 
 else:
     # Welcome message (Dashboard tab)
     with tab1:
-        st.info("Configure parameters in the sidebar and click 'Generate Data' to begin.")
+        st.info("Configure parameters in the sidebar and click 'Generate & Analyze' to begin.")
         
         with st.expander("📌 Quick Start Guide", expanded=True):
             st.markdown("""
@@ -720,7 +707,7 @@ else:
                 <ol>
                     <li>Set transaction volume and fraud rate</li>
                     <li>Optionally select machine learning models to analyze</li>
-                    <li>Click "Generate Data" to create synthetic transactions</li>
+                    <li>Click "Generate & Analyze" to create synthetic transactions</li>
                     <li>Explore the data and download it in your preferred format</li>
                 </ol>
             </div>
