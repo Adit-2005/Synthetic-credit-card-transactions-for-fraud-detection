@@ -25,9 +25,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 
-# Set pandas option to avoid downcasting warning
-pd.set_option('future.no_silent_downcasting', True)
-
 # Check for XGBoost availability
 try:
     from xgboost import XGBClassifier
@@ -40,27 +37,15 @@ SEED = 42
 np.random.seed(SEED)
 random.seed(SEED)
 
-# Initialize session state
-if 'generated_data' not in st.session_state:
-    st.session_state.generated_data = None
-if 'model_results' not in st.session_state:
-    st.session_state.model_results = None
-if 'config' not in st.session_state:
-    st.session_state.config = None
-if 'models_selected' not in st.session_state:
-    st.session_state.models_selected = []
-
-# Configuration with cloud-optimized defaults
-def get_default_config():
-    cloud_mode = st.secrets.get("DEPLOYED", False)
-    return {
-        "N_CUSTOMERS": 1000 if cloud_mode else 2000,
-        "N_MERCHANTS": 400 if cloud_mode else 800,
-        "N_TXNS": 5000 if cloud_mode else 10000,
-        "START_DATE": "2025-01-01",
-        "DAYS": 45,
-        "TARGET_FRAUD_RATE": 0.025
-    }
+# Configuration
+DEFAULT_CONFIG = {
+    "N_CUSTOMERS": 2000,
+    "N_MERCHANTS": 800,
+    "N_TXNS": 10000,
+    "START_DATE": "2025-01-01",
+    "DAYS": 45,
+    "TARGET_FRAUD_RATE": 0.025
+}
 
 # Helper Functions
 def rand_id(prefix):
@@ -90,12 +75,12 @@ def weighted_choice(choices, weights):
     r = random.random() * cum[-1]
     return choices[np.searchsorted(cum, r)]
 
-@st.cache_data(show_spinner=False, max_entries=1)
+@st.cache_data
 def generate_transactions(config=None, seed=SEED):
     if config is None:
-        config = get_default_config()
+        config = DEFAULT_CONFIG.copy()
     else:
-        config = {**get_default_config(), **config}
+        config = {**DEFAULT_CONFIG, **config}
     
     if isinstance(config["START_DATE"], str):
         config["START_DATE"] = pd.to_datetime(config["START_DATE"])
@@ -315,7 +300,7 @@ def prepare_features(txns):
     y = txns['is_fraud'].astype(int).values
     return X, y
 
-@st.cache_data(show_spinner=False, max_entries=1)
+@st.cache_data
 def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     model_mapping = {
         'Logistic Regression': 'LogReg',
@@ -330,15 +315,16 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     else:
         models_to_run = [model_mapping[m] for m in models_to_run if m in model_mapping]
     
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=seed, stratify=y
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, 
+                                                      test_size=0.2, 
+                                                      random_state=seed, 
+                                                      stratify=y)
     
     models = {
         'LogReg': LogisticRegression(max_iter=200, 
                                    class_weight='balanced', 
                                    random_state=seed),
-        'RF': RandomForestClassifier(n_estimators=100,  # Reduced for cloud
+        'RF': RandomForestClassifier(n_estimators=200, 
                                    class_weight='balanced_subsample', 
                                    random_state=seed, 
                                    n_jobs=-1),
@@ -350,81 +336,61 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     }
     
     if HAVE_XGB:
-        try:
-            models['XGB'] = XGBClassifier(
-                n_estimators=100,  # Reduced for cloud
-                max_depth=4,       # Reduced for cloud
-                learning_rate=0.1,
-                subsample=0.8, 
-                colsample_bytree=0.8,
-                reg_lambda=1.0,
-                random_state=seed,
-                tree_method='hist',  # More memory efficient
-                scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
-        except Exception as e:
-            st.error(f"Failed to initialize XGBoost: {str(e)}")
-            HAVE_XGB = False
-            if 'XGB' in models_to_run:
-                models_to_run.remove('XGB')
+        models['XGB'] = XGBClassifier(
+            n_estimators=300,
+            max_depth=6,
+            learning_rate=0.08,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_lambda=1.0,
+            random_state=seed,
+            scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
+        )
     
     results = []
     figs = {}
     roc_data = {}
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for i, (name, model) in enumerate(models.items()):
+    for name, model in models.items():
         if name not in models_to_run:
             continue
             
-        status_text.text(f"Training {name}... ({i+1}/{len(models_to_run)})")
-        progress_bar.progress((i+1)/len(models_to_run))
-        
-        try:
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            y_proba = model.predict_proba(X_test)[:,1] if hasattr(model, 'predict_proba') else None
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        y_proba = model.predict_proba(X_test)[:,1] if hasattr(model, 'predict_proba') else None
 
-            metrics = {
-                'Model': name,
-                'Accuracy': accuracy_score(y_test, y_pred),
-                'Precision': precision_score(y_test, y_pred, zero_division=0),
-                'Recall': recall_score(y_test, y_pred, zero_division=0),
-                'F1': f1_score(y_test, y_pred, zero_division=0),
-            }
+        metrics = {
+            'Model': name,
+            'Accuracy': accuracy_score(y_test, y_pred),
+            'Precision': precision_score(y_test, y_pred, zero_division=0),
+            'Recall': recall_score(y_test, y_pred, zero_division=0),
+            'F1': f1_score(y_test, y_pred, zero_division=0),
+        }
+        
+        if y_proba is not None:
+            metrics['ROC AUC'] = roc_auc_score(y_test, y_proba)
+            fpr, tpr, _ = roc_curve(y_test, y_proba)
+            roc_data[name] = {'fpr': fpr, 'tpr': tpr}
+        
+        results.append(metrics)
+        
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
+        ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax1, cmap='Blues')
+        ax1.set_title(f'Confusion Matrix - {name}')
+        
+        if y_proba is not None:
+            RocCurveDisplay.from_estimator(model, X_test, y_test, ax=ax2)
+            ax2.set_title(f'ROC Curve - {name}')
             
-            if y_proba is not None:
-                metrics['ROC AUC'] = roc_auc_score(y_test, y_proba)
-                fpr, tpr, _ = roc_curve(y_test, y_proba)
-                roc_data[name] = {'fpr': fpr, 'tpr': tpr}
-            
-            results.append(metrics)
-            
-            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
-            ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax1, cmap='Blues')
-            ax1.set_title(f'Confusion Matrix - {name}')
-            
-            if y_proba is not None:
-                RocCurveDisplay.from_estimator(model, X_test, y_test, ax=ax2)
-                ax2.set_title(f'ROC Curve - {name}')
-                
-                prec, rec, _ = precision_recall_curve(y_test, y_proba)
-                ax3.plot(rec, prec)
-                ax3.set_title(f'Precision-Recall Curve - {name}')
-                ax3.set_xlabel('Recall')
-                ax3.set_ylabel('Precision')
-            
-            figs[name] = fig
-            plt.close(fig)
-            
-        except Exception as e:
-            st.error(f"Error training {name}: {str(e)}")
-            continue
-    
-    progress_bar.empty()
-    status_text.empty()
-    
+            prec, rec, _ = precision_recall_curve(y_test, y_proba)
+            ax3.plot(rec, prec)
+            ax3.set_title(f'Precision-Recall Curve - {name}')
+            ax3.set_xlabel('Recall')
+            ax3.set_ylabel('Precision')
+        
+        figs[name] = fig
+        plt.close(fig)
+
     results_df = pd.DataFrame(results)
     return results_df, figs, roc_data, models
 
@@ -502,9 +468,11 @@ def detailed_feature_analysis(model, X, y, model_name):
     
     with tabs[1]:
         st.info("Partial dependence plots would show how each feature affects predictions")
+        # Implementation would use sklearn.inspection.partial_dependence
     
     with tabs[2]:
         st.info("Feature interaction analysis would show combined effects")
+        # Implementation would use SHAP or similar
 
 # Streamlit UI
 st.set_page_config(
@@ -558,7 +526,7 @@ with st.sidebar:
             "Number of Transactions",
             min_value=1000,
             max_value=50000,
-            value=5000,
+            value=10000,
             step=1000
         )
         target_fraud = st.slider(
@@ -570,160 +538,148 @@ with st.sidebar:
             value=SEED,
             step=1
         )
-        lite_mode = st.checkbox("Lite Mode (Recommended for cloud)", value=st.secrets.get("DEPLOYED", False))
     
     with st.expander("🤖 Model Selection (Optional)"):
-        if st.secrets.get("DEPLOYED", False):
-            st.warning("For better stability in cloud, select fewer models")
-        
         base_models = ['Logistic Regression', 'Random Forest', 'SVM', 'KNN']
-        available_models = base_models + (['XGBoost'] if HAVE_XGB else [])
+        
+        if HAVE_XGB:
+            available_models = base_models + ['XGBoost']
+            default_models = []
+        else:
+            available_models = base_models
+            default_models = []
+            st.markdown(
+                '<div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0;">'
+                '⚠️ XGBoost not installed. <code>pip install xgboost</code>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+        
         models_selected = st.multiselect(
-            "Models to Run",
+            "Models to Run (Leave empty to just generate data)",
             available_models,
-            default=[]
+            default=default_models
         )
     
-    if st.button("🚀 Generate & Analyze", type="primary", use_container_width=True):
-        st.session_state.config = {
-            "N_TXNS": int(n_txns),
-            "TARGET_FRAUD_RATE": float(target_fraud)/100,
-            "START_DATE": "2025-01-01",
-            "DAYS": 45,
-            "N_CUSTOMERS": 500 if lite_mode else 1000,
-            "N_MERCHANTS": 200 if lite_mode else 400
-        }
-        st.session_state.models_selected = models_selected
-        st.rerun()
+    run_btn = st.button(
+        "🚀 Generate & Analyze",
+        type="primary",
+        use_container_width=True
+    )
 
 # Create tabs
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🔍 Exploration", "🤖 Models", "📤 Export"])
 
-try:
-    if st.session_state.config is not None:
-        with st.spinner("Generating data..."):
-            out = generate_transactions(config=st.session_state.config, seed=int(seed))
-            st.session_state.generated_data = out['txns']
-            
-            if st.session_state.models_selected:
-                X, y = prepare_features(st.session_state.generated_data)
-                with st.spinner("Training models..."):
-                    results = train_and_evaluate(X, y, models_to_run=st.session_state.models_selected, seed=int(seed))
-                    if results is not None:
-                        st.session_state.model_results = results
+if run_btn:
+    cfg = {
+        "N_CUSTOMERS": 2000,
+        "N_MERCHANTS": 800,
+        "N_TXNS": int(n_txns),
+        "TARGET_FRAUD_RATE": float(target_fraud)/100,
+        "START_DATE": "2025-01-01",
+        "DAYS": 45
+    }
+    out = generate_transactions(config=cfg, seed=int(seed))
+    txns = out['txns']
+    
+    # Store the generated data in session state
+    st.session_state.generated_data = txns
     
     # Dashboard Tab
     with tab1:
-        if st.session_state.generated_data is not None:
-            txns = st.session_state.generated_data
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Transactions", f"{len(txns):,}")
-            with col2:
-                st.metric("Fraud Cases", 
-                         f"{txns['is_fraud'].sum():,}",
-                         f"{txns['is_fraud'].mean()*100:.2f}%")
-            with col3:
-                st.metric("Avg Amount", f"${txns['amount'].mean():.2f}")
-            
-            st.divider()
-            
-            # Data Preview and Download
-            with st.expander("📁 Transaction Data Preview & Download", expanded=True):
-                st.dataframe(txns.head(100), use_container_width=True)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    export_format = st.selectbox(
-                        "Export Format",
-                        ["CSV", "Excel", "JSON"],
-                        key="main_export"
-                    )
-                with col2:
-                    if export_format == "Excel":
-                        buffer = BytesIO()
-                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                            txns.to_excel(writer, index=False)
-                        st.download_button(
-                            "💾 Download Full Dataset",
-                            data=buffer.getvalue(),
-                            file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                    else:
-                        st.download_button(
-                            "💾 Download Full Dataset",
-                            data=txns.to_csv(index=False) if export_format == "CSV" else txns.to_json(indent=2),
-                            file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.{export_format.lower()}",
-                            mime="text/csv" if export_format == "CSV" else "application/json"
-                        )
-            
-            st.divider()
-            
-            # Interactive EDA
-            st.subheader("Interactive Data Exploration")
-            eda_figs = plot_interactive_eda(txns)
-            for fig in eda_figs.values():
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Configure parameters in the sidebar and click 'Generate & Analyze' to begin.")
-            
-            with st.expander("📌 Quick Start Guide", expanded=True):
-                st.markdown("""
-                <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px;">
-                    <h3 style="margin-top:0;">Getting Started</h3>
-                    <ol>
-                        <li>Set transaction volume and fraud rate</li>
-                        <li>Optionally select machine learning models to analyze</li>
-                        <li>Click "Generate & Analyze" to create synthetic transactions</li>
-                        <li>Explore the data and download it in your preferred format</li>
-                    </ol>
-                </div>
-                """, unsafe_allow_html=True)
-    
-    # Exploration Tab
-    with tab2:
-        if st.session_state.generated_data is not None:
-            txns = st.session_state.generated_data
-            st.subheader("Transaction Explorer")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Transactions", f"{len(txns):,}")
+        with col2:
+            st.metric("Fraud Cases", 
+                     f"{txns['is_fraud'].sum():,}",
+                     f"{txns['is_fraud'].mean()*100:.2f}%")
+        with col3:
+            st.metric("Avg Amount", f"${txns['amount'].mean():.2f}")
+        
+        st.divider()
+        
+        # Data Preview and Download
+        with st.expander("📁 Transaction Data Preview & Download", expanded=True):
+            st.dataframe(txns.head(100), use_container_width=True)
             
             col1, col2 = st.columns(2)
             with col1:
-                amount_filter = st.slider(
-                    "Filter by Amount",
-                    float(txns['amount'].min()),
-                    float(txns['amount'].max()),
-                    (float(txns['amount'].min()), float(txns['amount'].max()))
+                export_format = st.selectbox(
+                    "Export Format",
+                    ["CSV", "Excel", "JSON"],
+                    key="main_export"
                 )
             with col2:
-                fraud_filter = st.selectbox(
-                    "Filter by Fraud Status",
-                    ["All", "Fraud Only", "Legitimate Only"]
-                )
-            
-            filtered = txns[
-                (txns['amount'] >= amount_filter[0]) & 
-                (txns['amount'] <= amount_filter[1])
-            ]
-            if fraud_filter == "Fraud Only":
-                filtered = filtered[filtered['is_fraud'] == 1]
-            elif fraud_filter == "Legitimate Only":
-                filtered = filtered[filtered['is_fraud'] == 0]
-            
-            st.dataframe(filtered, use_container_width=True)
-            
-            st.plotly_chart(px.histogram(filtered, x='amount', color='is_fraud',
-                           title='Amount Distribution by Fraud Status'), use_container_width=True)
-            
-            st.plotly_chart(px.scatter(filtered, x='hour', y='amount', color='is_fraud',
-                           title='Transactions by Hour and Amount'), use_container_width=True)
-        else:
-            st.info("Generate data to explore transaction patterns")
+                if export_format == "Excel":
+                    buffer = BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        txns.to_excel(writer, index=False)
+                        writer.close()
+                    st.download_button(
+                        "💾 Download Full Dataset",
+                        data=buffer.getvalue(),
+                        file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                else:
+                    st.download_button(
+                        "💾 Download Full Dataset",
+                        data=txns.to_csv(index=False) if export_format == "CSV" else txns.to_json(indent=2),
+                        file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.{export_format.lower()}",
+                        mime="text/csv" if export_format == "CSV" else "application/json"
+                    )
+        
+        st.divider()
+        
+        # Interactive EDA
+        st.subheader("Interactive Data Exploration")
+        eda_figs = plot_interactive_eda(txns)
+        for fig in eda_figs.values():
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Exploration Tab
+    with tab2:
+        st.subheader("Transaction Explorer")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            amount_filter = st.slider(
+                "Filter by Amount",
+                float(txns['amount'].min()),
+                float(txns['amount'].max()),
+                (float(txns['amount'].min()), float(txns['amount'].max()))
+            )
+        with col2:
+            fraud_filter = st.selectbox(
+                "Filter by Fraud Status",
+                ["All", "Fraud Only", "Legitimate Only"]
+            )
+        
+        filtered = txns[
+            (txns['amount'] >= amount_filter[0]) & 
+            (txns['amount'] <= amount_filter[1])
+        ]
+        if fraud_filter == "Fraud Only":
+            filtered = filtered[filtered['is_fraud'] == 1]
+        elif fraud_filter == "Legitimate Only":
+            filtered = filtered[filtered['is_fraud'] == 0]
+        
+        st.dataframe(filtered, use_container_width=True)
+        
+        st.plotly_chart(px.histogram(filtered, x='amount', color='is_fraud',
+                       title='Amount Distribution by Fraud Status'), use_container_width=True)
+        
+        st.plotly_chart(px.scatter(filtered, x='hour', y='amount', color='is_fraud',
+                       title='Transactions by Hour and Amount'), use_container_width=True)
     
-    # Models Tab
-    with tab3:
-        if st.session_state.model_results is not None:
-            results_df, figs, roc_data, models = st.session_state.model_results
+    # Only run models if any were selected
+    if models_selected:
+        X, y = prepare_features(txns)
+        results_df, figs, roc_data, models = train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
+        
+        # Models Tab
+        with tab3:
             st.subheader("Enhanced Model Evaluation")
             enhanced_model_comparison(results_df)
             
@@ -733,16 +689,16 @@ try:
                     
                     if model_name in figs:
                         st.pyplot(figs[model_name])
-        elif st.session_state.generated_data is not None:
+    else:
+        with tab3:
             st.info("No models selected. Data was generated but no models were run.")
-        else:
-            st.info("Select models in the sidebar to analyze the data")
     
-    # Export Tab
+    # Enhanced Export Tab
     with tab4:
-        if st.session_state.generated_data is not None:
+        st.subheader("Data Export Options")
+        
+        if 'generated_data' in st.session_state:
             txns = st.session_state.generated_data
-            st.subheader("Data Export Options")
             
             st.write("Download the generated dataset in your preferred format:")
             
@@ -751,36 +707,58 @@ try:
                 st.download_button(
                     "💾 Download as CSV",
                     data=txns.to_csv(index=False),
-                    file_name=f"fraud_data_{len(txns)}_txns.csv",
+                    file_name=f"fraud_data_{n_txns}_txns.csv",
                     mime="text/csv"
                 )
             with col2:
                 buffer = BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     txns.to_excel(writer, index=False)
+                    writer.close()
                 st.download_button(
                     "💾 Download as Excel",
                     data=buffer.getvalue(),
-                    file_name=f"fraud_data_{len(txns)}_txns.xlsx",
+                    file_name=f"fraud_data_{n_txns}_txns.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             with col3:
                 st.download_button(
                     "💾 Download as JSON",
                     data=txns.to_json(indent=2),
-                    file_name=f"fraud_data_{len(txns)}_txns.json",
+                    file_name=f"fraud_data_{n_txns}_txns.json",
                     mime="application/json"
                 )
             
             st.divider()
             st.write("Preview of generated data:")
             st.dataframe(txns.head(), use_container_width=True)
-        else:
-            st.info("Generate data to access export options")
 
-except Exception as e:
-    st.error(f"An error occurred: {str(e)}")
-    st.info("Please try again with smaller data sizes or fewer models")
+else:
+    # Welcome message (Dashboard tab)
+    with tab1:
+        st.info("Configure parameters in the sidebar and click 'Generate & Analyze' to begin.")
+        
+        with st.expander("📌 Quick Start Guide", expanded=True):
+            st.markdown("""
+            <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px;">
+                <h3 style="margin-top:0;">Getting Started</h3>
+                <ol>
+                    <li>Set transaction volume and fraud rate</li>
+                    <li>Optionally select machine learning models to analyze</li>
+                    <li>Click "Generate & Analyze" to create synthetic transactions</li>
+                    <li>Explore the data and download it in your preferred format</li>
+                </ol>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with tab2:
+        st.info("Generate data to explore transaction patterns")
+    
+    with tab3:
+        st.info("Select models in the sidebar to analyze the data")
+    
+    with tab4:
+        st.info("Generate data to access export options")
 
 st.markdown("---")
-st.caption("© 2023 Fraud Detection Pro | v2.4 | Cloud Optimized")
+st.caption("© 2025 Fraud Detection Pro | v2.3 | Enhanced Data Export")
