@@ -401,23 +401,48 @@ def enhanced_model_comparison(results_df):
     with col1:
         st.markdown("### Model Performance Summary")
         display_df = results_df.copy()
-        display_df['Best'] = display_df.idxmax(axis=0)
+        
+        # Find best models for each metric
+        best_models = {}
+        for col in display_df.columns:
+            if col not in ['Model', 'Best'] and pd.api.types.is_numeric_dtype(display_df[col]):
+                best_models[col] = display_df[col].idxmax()
+        
+        # Create a styled DataFrame
+        def highlight_max(s):
+            is_max = s == s.max()
+            return ['background-color: #2ecc71' if v else '' for v in is_max]
+        
+        styled_df = display_df.style.format({
+            'Accuracy': '{:.3f}',
+            'Precision': '{:.3f}',
+            'Recall': '{:.3f}',
+            'F1': '{:.3f}',
+            'ROC AUC': '{:.3f}'
+        })
+        
+        # Apply highlighting
+        for col in best_models.keys():
+            styled_df = styled_df.apply(highlight_max, subset=[col])
+        
         st.dataframe(
-            display_df.style
-            .highlight_max(axis=0, color='#2ecc71')
-            .format("{:.3f}"),
+            styled_df,
             use_container_width=True
         )
     
     with col2:
-        fig = px.parallel_coordinates(
-            results_df,
-            color='ROC AUC',
-            dimensions=['Accuracy', 'Precision', 'Recall', 'F1', 'ROC AUC'],
-            color_continuous_scale=px.colors.diverging.Tealrose,
-            title='Model Performance Comparison'
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Ensure ROC AUC exists before plotting
+        if 'ROC AUC' in results_df.columns:
+            fig = px.parallel_coordinates(
+                results_df,
+                color='ROC AUC',
+                dimensions=['Accuracy', 'Precision', 'Recall', 'F1', 'ROC AUC'],
+                color_continuous_scale=px.colors.diverging.Tealrose,
+                title='Model Performance Comparison'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("ROC AUC data not available for model comparison")
 
 def detailed_feature_analysis(model, X, y, model_name):
     """Comprehensive feature analysis with multiple tabs"""
@@ -736,4 +761,4 @@ else:
         st.info("Generate data to access export options")
 
 st.markdown("---")
-st.caption("© 2023 Fraud Detection Pro | v2.3 | Enhanced Data Export")
+st.caption("© 2025 Fraud Detection Pro | v2.3 | Enhanced Data Export")
