@@ -659,8 +659,12 @@ if run_btn:
             st.info("No models selected. Configure models in the sidebar to run analysis.")
     
     # Export Tab
-    with tab4:
-        st.subheader("Data Export Options")
+    # Export Tab (always available after data generation)
+with tab4:
+    st.subheader("Data Export Options")
+    
+    if "generated_data" in st.session_state:
+        txns = st.session_state.generated_data
         
         st.write("You can download the generated dataset in multiple formats:")
         
@@ -686,8 +690,14 @@ if run_btn:
                 file_name="fraud_transactions.json",
                 mime="application/json"
             )
-        
+
         st.divider()
+        st.subheader("📁 Preview of Generated Data")
+        st.dataframe(txns.head(100), use_container_width=True)
+
+    else:
+        st.info("Generate data to access export options")
+
         
         st.write("For customized exports, use the filters in the Exploration tab and download the filtered data:")
         if 'filtered' in locals():
