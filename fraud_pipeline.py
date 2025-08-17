@@ -69,13 +69,11 @@ def weighted_choice(choices, weights):
     return choices[np.searchsorted(cum, r)]
 
 def generate_transactions(config=None, seed=SEED):
-    # Merge with default config
     if config is None:
         config = DEFAULT_CONFIG.copy()
     else:
         config = {**DEFAULT_CONFIG, **config}
     
-    # Ensure START_DATE is datetime
     if isinstance(config["START_DATE"], str):
         config["START_DATE"] = pd.to_datetime(config["START_DATE"])
     
@@ -257,7 +255,7 @@ def plot_eda(txns):
     # Plot 5: Geographic Distribution
     ax5 = plt.subplot(gs[2, :])
     fraud_locations = txns[txns['is_fraud'] == 1]
-    legit_locations = txns[txns['is_fraud'] == 0].sample(n=min(10000, len(txns[txns['is_fraud'] == 0)))
+    legit_locations = txns[txns['is_fraud'] == 0].sample(n=min(10000, len(txns[txns['is_fraud'] == 0])))
     ax5.scatter(legit_locations['home_lon'], legit_locations['home_lat'], 
                color='#2ecc71', alpha=0.3, label='Legitimate', s=10)
     ax5.scatter(fraud_locations['home_lon'], fraud_locations['home_lat'], 
