@@ -7,3 +7,4 @@ seaborn==0.13.2
 plotly==5.22.0
 xgboost==1.7.6
 uuid==1.30
+xlsxwriter
