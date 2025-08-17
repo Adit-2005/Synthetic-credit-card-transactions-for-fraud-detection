@@ -69,11 +69,13 @@ def weighted_choice(choices, weights):
     return choices[np.searchsorted(cum, r)]
 
 def generate_transactions(config=None, seed=SEED):
+    # Merge with default config
     if config is None:
         config = DEFAULT_CONFIG.copy()
     else:
         config = {**DEFAULT_CONFIG, **config}
     
+    # Ensure START_DATE is datetime
     if isinstance(config["START_DATE"], str):
         config["START_DATE"] = pd.to_datetime(config["START_DATE"])
     
@@ -334,7 +336,6 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
             reg_lambda=1.0,
             random_state=seed,
             scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
-        )
     
     results = []
     figs = {}
