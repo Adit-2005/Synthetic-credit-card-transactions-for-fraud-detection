@@ -11,6 +11,7 @@ import uuid
 import random
 import math
 import io
+from io import BytesIO
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
@@ -585,16 +586,24 @@ if run_btn:
                     key="main_export"
                 )
             with col2:
-                st.download_button(
-                    "💾 Download Full Dataset",
-                    data=txns.to_csv(index=False) if export_format == "CSV" else 
-                         txns.to_excel(index=False) if export_format == "Excel" else 
-                         txns.to_json(indent=2),
-                    file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.{export_format.lower()}",
-                    mime="text/csv" if export_format == "CSV" else 
-                         "application/vnd.ms-excel" if export_format == "Excel" else 
-                         "application/json"
-                )
+                if export_format == "Excel":
+                    buffer = BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        txns.to_excel(writer, index=False)
+                        writer.close()
+                    st.download_button(
+                        "💾 Download Full Dataset",
+                        data=buffer.getvalue(),
+                        file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                else:
+                    st.download_button(
+                        "💾 Download Full Dataset",
+                        data=txns.to_csv(index=False) if export_format == "CSV" else txns.to_json(indent=2),
+                        file_name=f"fraud_data_{datetime.now().strftime('%Y%m%d')}.{export_format.lower()}",
+                        mime="text/csv" if export_format == "CSV" else "application/json"
+                    )
         
         st.divider()
         
@@ -677,11 +686,15 @@ if run_btn:
                     mime="text/csv"
                 )
             with col2:
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                    txns.to_excel(writer, index=False)
+                    writer.close()
                 st.download_button(
                     "💾 Download as Excel",
-                    data=txns.to_excel(index=False),
+                    data=buffer.getvalue(),
                     file_name=f"fraud_data_{n_txns}_txns.xlsx",
-                    mime="application/vnd.ms-excel"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             with col3:
                 st.download_button(
