@@ -11,8 +11,6 @@ from io import BytesIO
 import time
 import os
 import gc
-import signal
-from contextlib import contextmanager
 import psutil
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -42,16 +40,6 @@ SEED = 42
 np.random.seed(SEED)
 random.seed(SEED)
 
-# Cloud-optimized configuration
-DEFAULT_CONFIG = {
-    "N_CUSTOMERS": 500 if os.environ.get('IS_STREAMLIT_CLOUD') else 2000,
-    "N_MERCHANTS": 200 if os.environ.get('IS_STREAMLIT_CLOUD') else 800,
-    "N_TXNS": 2000 if os.environ.get('IS_STREAMLIT_CLOUD') else 10000,
-    "START_DATE": "2025-01-01",
-    "DAYS": 45,
-    "TARGET_FRAUD_RATE": 0.025
-}
-
 # Initialize session state
 if 'app_state' not in st.session_state:
     st.session_state.app_state = {
@@ -59,7 +47,19 @@ if 'app_state' not in st.session_state:
         'data': None,
         'models': None,
         'last_activity': time.time(),
-        'cleanup_counter': 0
+        'progress': 0,
+        'status': 'Ready'
+    }
+
+# Cloud-optimized configuration
+def get_default_config():
+    return {
+        "N_CUSTOMERS": 500 if os.environ.get('IS_STREAMLIT_CLOUD') else 2000,
+        "N_MERCHANTS": 200 if os.environ.get('IS_STREAMLIT_CLOUD') else 800,
+        "N_TXNS": 2000 if os.environ.get('IS_STREAMLIT_CLOUD') else 10000,
+        "START_DATE": "2025-01-01",
+        "DAYS": 45,
+        "TARGET_FRAUD_RATE": 0.025
     }
 
 # Helper Functions
@@ -90,12 +90,8 @@ def weighted_choice(choices, weights):
     r = random.random() * cum[-1]
     return choices[np.searchsorted(cum, r)]
 
-@st.cache_data(show_spinner=False)
 def generate_transactions(config=None, seed=SEED):
-    if config is None:
-        config = DEFAULT_CONFIG.copy()
-    else:
-        config = {**DEFAULT_CONFIG, **config}
+    config = config or get_default_config()
     
     if isinstance(config["START_DATE"], str):
         config["START_DATE"] = pd.to_datetime(config["START_DATE"])
@@ -160,7 +156,7 @@ def generate_transactions(config=None, seed=SEED):
         "6011": (20, 500), "7995": (10, 600), "4814": (5, 500)
     }
     txns["amount"] = txns["mcc"].map(amount_ranges).apply(
-        lambda x: np.clip(np.random.gamma(2.0, (x[1]-x[0])/4.0) + x[0], x[0], x[1]).round(2)
+        lambda x: np.clip(np.random.gamma(2.0, (x[1]-x[0])/4.0 + x[0], x[0], x[1]).round(2)
     )
 
     # Add fraud patterns
@@ -200,24 +196,19 @@ def generate_transactions(config=None, seed=SEED):
     txns["minutes_since_prev"] = txns.groupby("customer_id")["timestamp"].diff().dt.total_seconds() / 60
     
     # Safe distance calculation
-    def calc_km_from_prev(group, max_iterations=1000):
+    def calc_km_from_prev(group):
         distances = [0]
         if len(group) > 1:
             distances = []
             prev_lat, prev_lon = group.iloc[0]["home_lat"], group.iloc[0]["home_lon"]
-            for i in range(1, min(len(group), max_iterations)):
+            for i in range(1, len(group)):
                 curr_lat, curr_lon = group.iloc[i]["m_lat"], group.iloc[i]["m_lon"]
                 distances.append(haversine(prev_lat, prev_lon, curr_lat, curr_lon))
                 prev_lat, prev_lon = curr_lat, curr_lon
             distances = [0] + distances
         return distances
     
-    txns["km_from_prev"] = txns.groupby("customer_id").apply(lambda g: calc_km_from_prev(g)).explode().values
-
-    # Transaction count features
-    txns["txns_last_10m"] = txns.groupby("customer_id").rolling("10min", on="timestamp").count()["transaction_id"].values
-    txns["txns_last_1h"] = txns.groupby("customer_id").rolling("1h", on="timestamp").count()["transaction_id"].values
-    txns["txns_last_24h"] = txns.groupby("customer_id").rolling("24h", on="timestamp").count()["transaction_id"].values
+    txns["km_from_prev"] = txns.groupby("customer_id").apply(calc_km_from_prev).explode().values
 
     # Clean up memory
     gc.collect()
@@ -228,19 +219,23 @@ def generate_transactions(config=None, seed=SEED):
         "merchants": merchants
     }
 
-# Timeout handler for model training
-class TimeoutException(Exception): pass
+def prepare_features(txns):
+    categorical_cols = ["currency", "channel", "pos_entry_mode", "ip_country", 
+                       "home_region", "m_region", "mcc"]
+    numeric_cols = ["amount", "is_international", "billing_shipping_mismatch", 
+                   "declined_before_approved", "km_home_to_merchant", 
+                   "minutes_since_prev", "km_from_prev", "hour", "dow", 
+                   "ip_matches_customer_region"]
 
-@contextmanager
-def time_limit(seconds):
-    def signal_handler(signum, frame):
-        raise TimeoutException("Timed out!")
-    signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
+    X_cat = pd.get_dummies(txns[categorical_cols].astype(str), drop_first=True)
+    X_num = txns[numeric_cols].copy().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    scaler = StandardScaler()
+    X_num_scaled = pd.DataFrame(scaler.fit_transform(X_num), 
+                               columns=X_num.columns, 
+                               index=X_num.index)
+    X = pd.concat([X_num_scaled, X_cat], axis=1)
+    y = txns['is_fraud'].astype(int).values
+    return X, y
 
 def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     model_mapping = {
@@ -299,50 +294,50 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
         if name not in models_to_run:
             continue
             
-        status_text.text(f"Training {name}... ({i+1}/{len(models_to_run)})")
-        progress_bar.progress((i+1)/len(models_to_run))
+        st.session_state.app_state['status'] = f"Training {name}..."
+        status_text.text(st.session_state.app_state['status'])
         
         try:
-            with time_limit(120):  # 2 minutes per model
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
-                y_proba = model.predict_proba(X_test)[:,1] if hasattr(model, 'predict_proba') else None
+            # Update progress
+            progress = (i+1)/max(1, len(models_to_run))
+            progress_bar.progress(min(1.0, max(0.0, progress)))
+            
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            y_proba = model.predict_proba(X_test)[:,1] if hasattr(model, 'predict_proba') else None
 
-                metrics = {
-                    'Model': name,
-                    'Accuracy': accuracy_score(y_test, y_pred),
-                    'Precision': precision_score(y_test, y_pred, zero_division=0),
-                    'Recall': recall_score(y_test, y_pred, zero_division=0),
-                    'F1': f1_score(y_test, y_pred, zero_division=0),
-                }
+            metrics = {
+                'Model': name,
+                'Accuracy': accuracy_score(y_test, y_pred),
+                'Precision': precision_score(y_test, y_pred, zero_division=0),
+                'Recall': recall_score(y_test, y_pred, zero_division=0),
+                'F1': f1_score(y_test, y_pred, zero_division=0),
+            }
+            
+            if y_proba is not None:
+                metrics['ROC AUC'] = roc_auc_score(y_test, y_proba)
+                fpr, tpr, _ = roc_curve(y_test, y_proba)
+                roc_data[name] = {'fpr': fpr, 'tpr': tpr}
+            
+            results.append(metrics)
+            
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
+            ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax1, cmap='Blues')
+            ax1.set_title(f'Confusion Matrix - {name}')
+            
+            if y_proba is not None:
+                RocCurveDisplay.from_estimator(model, X_test, y_test, ax=ax2)
+                ax2.set_title(f'ROC Curve - {name}')
                 
-                if y_proba is not None:
-                    metrics['ROC AUC'] = roc_auc_score(y_test, y_proba)
-                    fpr, tpr, _ = roc_curve(y_test, y_proba)
-                    roc_data[name] = {'fpr': fpr, 'tpr': tpr}
-                
-                results.append(metrics)
-                
-                fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
-                ConfusionMatrixDisplay.from_estimator(model, X_test, y_test, ax=ax1, cmap='Blues')
-                ax1.set_title(f'Confusion Matrix - {name}')
-                
-                if y_proba is not None:
-                    RocCurveDisplay.from_estimator(model, X_test, y_test, ax=ax2)
-                    ax2.set_title(f'ROC Curve - {name}')
-                    
-                    prec, rec, _ = precision_recall_curve(y_test, y_proba)
-                    ax3.plot(rec, prec)
-                    ax3.set_title(f'Precision-Recall Curve - {name}')
-                    ax3.set_xlabel('Recall')
-                    ax3.set_ylabel('Precision')
-                
-                figs[name] = fig
-                plt.close(fig)
-                
-        except TimeoutException:
-            st.error(f"{name} training timed out - skipping")
-            continue
+                prec, rec, _ = precision_recall_curve(y_test, y_proba)
+                ax3.plot(rec, prec)
+                ax3.set_title(f'Precision-Recall Curve - {name}')
+                ax3.set_xlabel('Recall')
+                ax3.set_ylabel('Precision')
+            
+            figs[name] = fig
+            plt.close(fig)
+            
         except Exception as e:
             st.error(f"Error training {name}: {str(e)}")
             continue
@@ -352,9 +347,51 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
     gc.collect()
     
     results_df = pd.DataFrame(results)
+    st.session_state.app_state['models'] = {
+        'results': results_df,
+        'figures': figs,
+        'roc_data': roc_data,
+        'models': models
+    }
     return results_df, figs, roc_data, models
 
-# Streamlit UI setup
+def show_dashboard(txns):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Transactions", f"{len(txns):,}")
+    with col2:
+        st.metric("Fraud Cases", f"{txns['is_fraud'].sum():,}")
+    with col3:
+        st.metric("Avg Amount", f"${txns['amount'].mean():.2f}")
+    
+    st.dataframe(txns.head(100))
+    
+    export_format = st.selectbox("Export Format", ["CSV", "Excel", "JSON"])
+    if export_format == "Excel":
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer) as writer:
+            txns.to_excel(writer, index=False)
+        st.download_button(
+            "Download Data",
+            data=buffer.getvalue(),
+            file_name="fraud_data.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+    elif export_format == "CSV":
+        st.download_button(
+            "Download Data",
+            data=txns.to_csv(index=False),
+            file_name="fraud_data.csv",
+            mime="text/csv"
+        )
+    else:
+        st.download_button(
+            "Download Data",
+            data=txns.to_json(indent=2),
+            file_name="fraud_data.json",
+            mime="application/json"
+        )
+
 def main():
     st.set_page_config(
         page_title="Fraud Detection Pro",
@@ -446,14 +483,7 @@ def main():
                     X, y = prepare_features(st.session_state.app_state['data'])
                 
                 with st.spinner("Training models..."):
-                    results_df, figs, roc_data, models = train_and_evaluate(
-                        X, y, models_to_run=models_selected, seed=int(seed))
-                    st.session_state.app_state['models'] = {
-                        'results': results_df,
-                        'figures': figs,
-                        'roc_data': roc_data,
-                        'models': models
-                    }
+                    train_and_evaluate(X, y, models_to_run=models_selected, seed=int(seed))
             
             st.success("Analysis complete!")
             st.session_state.app_state['last_activity'] = time.time()
@@ -463,58 +493,33 @@ def main():
             st.stop()
     
     # Tab content rendering
-    if st.session_state.app_state['initialized']:
+    if st.session_state.app_state.get('initialized', False):
         txns = st.session_state.app_state['data']
         
         with tab1:
-            # Dashboard content
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Transactions", f"{len(txns):,}")
-            with col2:
-                st.metric("Fraud Cases", f"{txns['is_fraud'].sum():,}")
-            with col3:
-                st.metric("Avg Amount", f"${txns['amount'].mean():.2f}")
-            
-            st.dataframe(txns.head(100))
-            
-            # Export options
-            export_format = st.selectbox("Export Format", ["CSV", "Excel", "JSON"])
-            if export_format == "Excel":
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer) as writer:
-                    txns.to_excel(writer, index=False)
-                st.download_button(
-                    "Download Data",
-                    data=buffer.getvalue(),
-                    file_name="fraud_data.xlsx",
-                    mime="application/vnd.ms-excel"
-                )
-            elif export_format == "CSV":
-                st.download_button(
-                    "Download Data",
-                    data=txns.to_csv(index=False),
-                    file_name="fraud_data.csv",
-                    mime="text/csv"
-                )
+            show_dashboard(txns)
+        
+        with tab3:
+            if st.session_state.app_state.get('models'):
+                results_df = st.session_state.app_state['models']['results']
+                figs = st.session_state.app_state['models']['figures']
+                
+                st.subheader("Model Performance")
+                st.dataframe(results_df.style.highlight_max(axis=0))
+                
+                for name, fig in figs.items():
+                    with st.expander(f"{name} Details"):
+                        st.pyplot(fig)
             else:
-                st.download_button(
-                    "Download Data",
-                    data=txns.to_json(indent=2),
-                    file_name="fraud_data.json",
-                    mime="application/json"
-                )
-        
-        # Other tabs would follow similar patterns...
-        
+                st.info("No model results available. Generate data and select models first.")
     else:
         with tab1:
             st.info("Configure parameters and click 'Generate & Analyze' to begin")
     
     # Periodic cleanup
-    if st.session_state.app_state['cleanup_counter'] % 10 == 0:
+    if st.session_state.app_state.get('cleanup_counter', 0) % 10 == 0:
         gc.collect()
-    st.session_state.app_state['cleanup_counter'] += 1
+    st.session_state.app_state['cleanup_counter'] = st.session_state.app_state.get('cleanup_counter', 0) + 1
 
 if __name__ == '__main__':
     try:
@@ -522,4 +527,3 @@ if __name__ == '__main__':
     except Exception as e:
         st.error(f"Critical application error: {str(e)}")
         st.stop()
-```
