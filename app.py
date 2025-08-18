@@ -149,14 +149,14 @@ def generate_transactions(config=None, seed=SEED):
     txns = txns.merge(customers, on="customer_id")
     txns = txns.merge(merchants, on="merchant_id")
 
-    # Generate transaction amounts
+    # Generate transaction amounts - FIXED SYNTAX ERROR HERE
     amount_ranges = {
         "5411": (15, 80), "5812": (8, 60), "5942": (10, 90), "5732": (40, 800),
         "5999": (5, 120), "4111": (2, 50), "4812": (10, 150), "5967": (15, 300),
         "6011": (20, 500), "7995": (10, 600), "4814": (5, 500)
     }
     txns["amount"] = txns["mcc"].map(amount_ranges).apply(
-        lambda x: np.clip(np.random.gamma(2.0, (x[1]-x[0])/4.0 + x[0], x[0], x[1]).round(2)
+        lambda x: np.clip(np.random.gamma(2.0, (x[1]-x[0])/4.0) + x[0], x[0], x[1]).round(2)
     )
 
     # Add fraud patterns
@@ -277,7 +277,7 @@ def train_and_evaluate(X, y, models_to_run=None, seed=SEED):
                 learning_rate=0.1,
                 tree_method='hist',
                 random_state=seed,
-                scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum())
+                scale_pos_weight=max(1.0, (y_train==0).sum() / max(1, (y_train==1).sum()))
             )
         else:
             st.warning("Skipping XGBoost due to high memory usage")
